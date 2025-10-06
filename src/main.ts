@@ -28,6 +28,10 @@ scene.add(building);
 
 // Set up OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.maxPolarAngle = Math.PI / 2;
+controls.minDistance = 1;
+controls.maxDistance = 20;
+controls.enablePan = false;
 camera.position.set(0, 5, 0);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;

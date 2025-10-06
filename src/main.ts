@@ -26,7 +26,6 @@ const building = new THREE.Mesh(geometry, material);
 building.position.set(0, 0, 0);
 scene.add(building);
 
-// Set up OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.maxPolarAngle = Math.PI / 2;
 controls.minDistance = 1;
@@ -38,7 +37,6 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.update();
 
-// Keyboard movement variables
 const moveSpeed = 0.1;
 const keys = {
   ArrowUp: false,
@@ -47,7 +45,6 @@ const keys = {
   ArrowRight: false
 };
 
-// Add some basic lighting to see the cube better
 const ambientLight = new THREE.AmbientLight(0xCCCCCC, 0.8);
 scene.add(ambientLight);
 
@@ -55,7 +52,6 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(5, 10, 5);
 scene.add(directionalLight);
 
-// Keyboard event listeners
 window.addEventListener('keydown', (event) => {
   if (event.code in keys) {
     keys[event.code as keyof typeof keys] = true;
@@ -71,22 +67,33 @@ window.addEventListener('keyup', (event) => {
 function animate() {
   requestAnimationFrame(animate);
   
-  // Handle keyboard movement
-  if (keys.ArrowUp) {
-    controls.target.z -= moveSpeed;
-    camera.position.z -= moveSpeed;
-  }
-  if (keys.ArrowDown) {
-    controls.target.z += moveSpeed;
-    camera.position.z += moveSpeed;
-  }
-  if (keys.ArrowLeft) {
-    controls.target.x -= moveSpeed;
-    camera.position.x -= moveSpeed;
-  }
-  if (keys.ArrowRight) {
-    controls.target.x += moveSpeed;
-    camera.position.x += moveSpeed;
+  if (keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight) {
+    const direction = new THREE.Vector3();
+    direction.subVectors(controls.target, camera.position);
+    direction.y = 0;
+    direction.normalize();
+    
+    const right = new THREE.Vector3();
+    right.crossVectors(direction, camera.up);
+    right.normalize();
+    
+    const movement = new THREE.Vector3();
+    
+    if (keys.ArrowUp) {
+      movement.add(direction.clone().multiplyScalar(moveSpeed));
+    }
+    if (keys.ArrowDown) {
+      movement.add(direction.clone().multiplyScalar(-moveSpeed));
+    }
+    if (keys.ArrowRight) {
+      movement.add(right.clone().multiplyScalar(moveSpeed));
+    }
+    if (keys.ArrowLeft) {
+      movement.add(right.clone().multiplyScalar(-moveSpeed));
+    }
+    
+    controls.target.add(movement);
+    camera.position.add(movement);
   }
 
   controls.update();

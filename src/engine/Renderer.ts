@@ -1,10 +1,10 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 export class Renderer {
-    private renderer: THREE.WebGLRenderer;
+    private renderer: THREE.WebGPURenderer;
 
     constructor(canvas: HTMLCanvasElement) {
-        this.renderer = new THREE.WebGLRenderer({ canvas });
+        this.renderer = new THREE.WebGPURenderer({ canvas });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
     }
@@ -21,7 +21,7 @@ export class Renderer {
         return window.innerWidth / window.innerHeight;
     }
 
-    public getRenderer(): THREE.WebGLRenderer {
+    public getRenderer(): THREE.WebGPURenderer {
         return this.renderer;
     }
 

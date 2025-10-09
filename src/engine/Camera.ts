@@ -1,11 +1,11 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import * as THREE from 'three/webgpu';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export class Camera {
     private camera: THREE.PerspectiveCamera;
     private controls: OrbitControls | undefined;
 
-    constructor(aspectRatio: number, renderer?: THREE.WebGLRenderer) {
+    constructor(aspectRatio: number, renderer?: THREE.WebGPURenderer) {
         this.camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
         
         if (renderer) {
@@ -13,7 +13,7 @@ export class Camera {
         }
     }
 
-    public initializeControls(renderer: THREE.WebGLRenderer): void {
+    public initializeControls(renderer: THREE.WebGPURenderer): void {
         this.controls = new OrbitControls(this.camera, renderer.domElement);
         this.setupControls();
     }

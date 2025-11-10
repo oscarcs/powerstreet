@@ -1,0 +1,12 @@
+name = "powerstreet-worldsync"
+main = "src/index.ts"
+tsconfig = "./tsconfig.json"
+compatibility_date = "2025-11-10"
+
+[[durable_objects.bindings]]
+name = "WORLDSYNC"
+class_name = "WorldSyncDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["WorldSyncDurableObject"]

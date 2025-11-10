@@ -17,7 +17,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "worker:dev": "wrangler dev --config workers/worldsync/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config workers/worldsync/wrangler.toml"
   },
   "dependencies": {
     "@kninnug/constrainautor": "^4.0.1",
@@ -28,10 +30,12 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250902.0",
     "@types/delaunator": "^5.0.3",
     "@types/geojson": "^7946.0.16",
     "@types/three": "^0.180.0",
     "typescript": "^5.9.3",
-    "vite": "^7.1.9"
+    "vite": "^7.1.9",
+    "wrangler": "^4.46.0"
   }
 }

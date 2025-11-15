@@ -1,31 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Powerstreet</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      
-      body {
-        overflow: hidden;
-        font-family: Arial, sans-serif;
-      }
-      
-      #canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-      }
-    </style>
   </head>
-  <body>
-    <canvas id="canvas"></canvas>
+  <body class="h-full w-full overflow-hidden font-sans">
+    <div id="app-root" class="relative h-screen w-screen">
+      <div id="scene-root" class="relative h-full w-full">
+        <canvas id="canvas" class="block h-full w-full"></canvas>
+      </div>
+      <div id="ui-root" class="absolute inset-0 pointer-events-none"></div>
+    </div>
     <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

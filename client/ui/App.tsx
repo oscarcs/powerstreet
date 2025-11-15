@@ -1,5 +1,13 @@
 import { useCallback } from 'react';
 import type { EngineBridge, Vector3Tuple } from './engineBridge';
+import { Button } from './components/button';
+import {
+    Card,
+    CardContent,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+} from './components/card';
 import { EngineBridgeProvider } from './context/EngineBridgeContext';
 import { useCameraState } from './hooks/useCameraState';
 import { useEngineBridge } from './hooks/useEngineBridge';
@@ -21,26 +29,24 @@ const CameraStatusPanel = () => {
     }, [bridge]);
 
     return (
-        <div
-            className="pointer-events-auto rounded-xl border border-white/15 bg-slate-900/70 p-5 text-slate-50 shadow-2xl backdrop-blur-xl"
-            role="status"
-            aria-live="polite"
-        >
-            <h1 className="text-lg font-semibold">Camera</h1>
-            <dl className="mt-3 grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
-                <dt className="text-slate-300">Position</dt>
-                <dd className="m-0 tabular-nums text-slate-100">{formatVector(position)}</dd>
-                <dt className="text-slate-300">Target</dt>
-                <dd className="m-0 tabular-nums text-slate-100">{formatVector(target)}</dd>
-            </dl>
-            <button
-                type="button"
-                onClick={resetView}
-                className="mt-4 inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-semibold text-white shadow-lg transition duration-150 ease-in-out hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
-            >
-                Reset View
-            </button>
-        </div>
+        <Card className="pointer-events-auto" role="status" aria-live="polite">
+            <CardHeader>
+                <CardTitle>Camera</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <dl className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
+                    <dt>Position</dt>
+                    <dd className="m-0 tabular-nums">{formatVector(position)}</dd>
+                    <dt>Target</dt>
+                    <dd className="m-0 tabular-nums">{formatVector(target)}</dd>
+                </dl>
+            </CardContent>
+            <CardFooter>
+                <Button type="button" onClick={resetView}>
+                    Reset View
+                </Button>
+            </CardFooter>
+        </Card>
     );
 };
 

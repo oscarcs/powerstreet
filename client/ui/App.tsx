@@ -8,6 +8,7 @@ import {
     CardHeader,
     CardTitle,
 } from './components/card';
+import { Item, ItemGroup, ItemHeader, ItemTitle } from './components/item';
 import { EngineBridgeProvider } from './context/EngineBridgeContext';
 import { useCameraState } from './hooks/useCameraState';
 import { useEngineBridge } from './hooks/useEngineBridge';
@@ -34,12 +35,24 @@ const CameraStatusPanel = () => {
                 <CardTitle>Camera</CardTitle>
             </CardHeader>
             <CardContent>
-                <dl className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
-                    <dt>Position</dt>
-                    <dd className="m-0 tabular-nums">{formatVector(position)}</dd>
-                    <dt>Target</dt>
-                    <dd className="m-0 tabular-nums">{formatVector(target)}</dd>
-                </dl>
+                <ItemGroup className="gap-2">
+                    <Item size="sm">
+                        <ItemHeader>
+                            <ItemTitle>Position</ItemTitle>
+                            <span className="tabular-nums text-sm text-foreground">
+                                {formatVector(position)}
+                            </span>
+                        </ItemHeader>
+                    </Item>
+                    <Item size="sm">
+                        <ItemHeader>
+                            <ItemTitle>Target</ItemTitle>
+                            <span className="tabular-nums text-sm text-foreground">
+                                {formatVector(target)}
+                            </span>
+                        </ItemHeader>
+                    </Item>
+                </ItemGroup>
             </CardContent>
             <CardFooter>
                 <Button type="button" onClick={resetView}>

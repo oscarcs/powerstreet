@@ -1,12 +1,7 @@
 import * as React from "react";
 import { Building, LandPlot, MousePointer2, SplinePointer, type LucideIcon } from "lucide-react";
 
-import {
-    Toolbar,
-    ToolbarSeparator,
-    ToolbarToggleGroup,
-    ToolbarToggleItem,
-} from "./components/toolbar";
+import { Toolbar, ToolbarToggleGroup, ToolbarToggleItem } from "./components/toolbar";
 import {
     Tooltip,
     TooltipArrow,
@@ -124,21 +119,20 @@ export const MainToolbar = () => {
             <Toolbar
                 orientation="vertical"
                 size="default"
-                className="gap-2 p-2 shadow-lg shadow-black/10 backdrop-blur"
+                className="gap-0 p-0 shadow-lg shadow-black/10 backdrop-blur"
             >
                 <div
                     data-toolbar-drag-handle
                     className={cn(
-                        "rounded-md px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors",
+                        "h-3 w-full bg-muted/70 transition-colors hover:bg-muted/60",
                         "cursor-grab select-none touch-none",
-                        isDragging && "cursor-grabbing text-foreground",
+                        isDragging && "cursor-grabbing bg-muted/50",
                     )}
                     onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerCancel={handlePointerCancel}
                 ></div>
-                <ToolbarSeparator />
                 <TooltipProvider delayDuration={120} skipDelayDuration={250}>
                     <ToolbarToggleGroup
                         type="single"
@@ -151,7 +145,7 @@ export const MainToolbar = () => {
                             }
                             setActiveTool(value as ToolId);
                         }}
-                        className="items-stretch"
+                        className="items-stretch p-2"
                     >
                         {tools.map((tool) => {
                             const Icon = tool.icon;

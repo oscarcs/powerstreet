@@ -7,7 +7,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../utils";
 
 const toolbarVariants = cva(
-    "flex rounded-lg border border-border bg-background/95 px-2 py-1 shadow-sm supports-[backdrop-filter]:bg-background/60 text-foreground",
+    "flex overflow-hidden rounded-lg border border-border bg-background/95 shadow-sm supports-[backdrop-filter]:bg-background/60 text-foreground",
     {
         variants: {
             size: {

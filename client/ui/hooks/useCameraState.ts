@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { CameraState } from '../engineBridge';
-import { useEngineBridge } from './useEngineBridge';
+import { useEffect, useState } from "react";
+import type { CameraState } from "../engineBridge";
+import { useEngineBridge } from "./useEngineBridge";
 
 export const useCameraState = (): CameraState => {
     const bridge = useEngineBridge();

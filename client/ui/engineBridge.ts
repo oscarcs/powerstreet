@@ -1,5 +1,5 @@
-import type { Engine } from '../engine/Engine';
-import type { Camera } from '../engine/Camera';
+import type { Engine } from "../engine/Engine";
+import type { Camera } from "../engine/Camera";
 
 export type Vector3Tuple = [number, number, number];
 
@@ -34,7 +34,7 @@ export const createEngineBridge = (engine: Engine): EngineBridge => {
         const controls = camera.getControls();
 
         const position = toTuple(threeCamera.position);
-        const target = controls ? toTuple(controls.target) : [0, 0, 0] as Vector3Tuple;
+        const target = controls ? toTuple(controls.target) : ([0, 0, 0] as Vector3Tuple);
 
         return { position, target };
     };

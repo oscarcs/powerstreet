@@ -1,4 +1,4 @@
-import { Camera } from '../engine/Camera';
+import { Camera } from "../engine/Camera";
 
 export class InputManager {
     private camera: Camera;
@@ -7,7 +7,7 @@ export class InputManager {
         ArrowUp: false,
         ArrowDown: false,
         ArrowLeft: false,
-        ArrowRight: false
+        ArrowRight: false,
     };
 
     constructor(camera: Camera) {
@@ -16,8 +16,8 @@ export class InputManager {
     }
 
     private setupEventListeners(): void {
-        window.addEventListener('keydown', this.handleKeyDown);
-        window.addEventListener('keyup', this.handleKeyUp);
+        window.addEventListener("keydown", this.handleKeyDown);
+        window.addEventListener("keyup", this.handleKeyUp);
     }
 
     private handleKeyDown = (event: KeyboardEvent): void => {
@@ -33,7 +33,12 @@ export class InputManager {
     };
 
     public update(): void {
-        if (this.keys.ArrowUp || this.keys.ArrowDown || this.keys.ArrowLeft || this.keys.ArrowRight) {
+        if (
+            this.keys.ArrowUp ||
+            this.keys.ArrowDown ||
+            this.keys.ArrowLeft ||
+            this.keys.ArrowRight
+        ) {
             this.camera.handleMovement(this.keys, this.moveSpeed);
         }
     }
@@ -47,7 +52,7 @@ export class InputManager {
     }
 
     public dispose(): void {
-        window.removeEventListener('keydown', this.handleKeyDown);
-        window.removeEventListener('keyup', this.handleKeyUp);
+        window.removeEventListener("keydown", this.handleKeyDown);
+        window.removeEventListener("keyup", this.handleKeyUp);
     }
 }

@@ -19,7 +19,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "worker:dev": "wrangler dev --config workers/worldsync/wrangler.toml",
-    "worker:deploy": "wrangler deploy --config workers/worldsync/wrangler.toml"
+    "worker:deploy": "wrangler deploy --config workers/worldsync/wrangler.toml",
+    "format": "npx prettier --write \"{client,shared,workers}/**/*.{ts,tsx,js,jsx}\""
   },
   "dependencies": {
     "@kninnug/constrainautor": "^4.0.1",
@@ -50,6 +51,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "prettier": "3.6.2",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",

@@ -2,7 +2,10 @@ import { RxReplicationState } from "rxdb/plugins/replication";
 import { SyncOptionsWorldSync, WorldSyncCheckpointType, WorldSyncOptions } from "./worldsync-types";
 import { ReplicationPullOptions, ReplicationPushOptions, RxCollection } from "rxdb";
 
-export class RxWorldSyncReplicationState<RxDocType> extends RxReplicationState<RxDocType, WorldSyncCheckpointType> {
+export class RxWorldSyncReplicationState<RxDocType> extends RxReplicationState<
+    RxDocType,
+    WorldSyncCheckpointType
+> {
     constructor(
         public readonly worldSync: WorldSyncOptions<RxDocType>,
         public readonly replicationIdentifierHash: string,
@@ -11,25 +14,29 @@ export class RxWorldSyncReplicationState<RxDocType> extends RxReplicationState<R
         public readonly push?: ReplicationPushOptions<RxDocType>,
         public readonly live?: boolean,
         public retryTime: number = 1000 * 5,
-        public autoStart: boolean = true
+        public autoStart: boolean = true,
     ) {
         super(
             replicationIdentifierHash,
             collection,
-            '_deleted',
+            "_deleted",
             pull,
             push,
             live,
             retryTime,
-            autoStart
+            autoStart,
         );
     }
 }
 
-export function replicateWorldSync<RxDocType>(options: SyncOptionsWorldSync<RxDocType>): RxWorldSyncReplicationState<RxDocType> {
+export function replicateWorldSync<RxDocType>(
+    options: SyncOptionsWorldSync<RxDocType>,
+): RxWorldSyncReplicationState<RxDocType> {
     const collection: RxCollection<RxDocType, any, any> = options.collection;
-    
-    let replicationPrimitivesPull: ReplicationPullOptions<RxDocType, WorldSyncCheckpointType> | undefined = undefined;
+
+    let replicationPrimitivesPull:
+        | ReplicationPullOptions<RxDocType, WorldSyncCheckpointType>
+        | undefined = undefined;
     let replicationPrimitivesPush: ReplicationPushOptions<RxDocType> | undefined = undefined;
 
     const replicationState = new RxWorldSyncReplicationState<RxDocType>(
@@ -40,8 +47,8 @@ export function replicateWorldSync<RxDocType>(options: SyncOptionsWorldSync<RxDo
         replicationPrimitivesPush,
         options.live,
         options.retryTime,
-        options.autoStart
+        options.autoStart,
     );
 
-    return replicationState; 
+    return replicationState;
 }

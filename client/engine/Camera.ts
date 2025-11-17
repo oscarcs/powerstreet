@@ -1,5 +1,5 @@
-import * as THREE from 'three/webgpu';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from "three/webgpu";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 export class Camera {
     private camera: THREE.PerspectiveCamera;
@@ -7,7 +7,7 @@ export class Camera {
 
     constructor(aspectRatio: number, renderer?: THREE.WebGPURenderer) {
         this.camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
-        
+
         if (renderer) {
             this.initializeControls(renderer);
         }
@@ -20,7 +20,7 @@ export class Camera {
 
     private setupControls(): void {
         if (!this.controls) return;
-        
+
         this.controls.maxPolarAngle = Math.PI / 2;
         this.controls.minDistance = 1;
         this.controls.maxDistance = 20;

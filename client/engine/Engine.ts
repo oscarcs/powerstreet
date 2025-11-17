@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import { Renderer } from './Renderer';
-import { Camera } from './Camera';
-import { InputManager } from '../input/InputManager';
+import * as THREE from "three";
+import { Renderer } from "./Renderer";
+import { Camera } from "./Camera";
+import { InputManager } from "../input/InputManager";
 
 export class Engine {
     private renderer: Renderer;
@@ -16,7 +16,7 @@ export class Engine {
         this.renderer = new Renderer(canvas);
         this.camera = new Camera(this.renderer.getAspectRatio());
         this.camera.initializeControls(this.renderer.getRenderer());
-        
+
         this.inputManager = new InputManager(this.camera);
 
         this.setupScene();
@@ -30,7 +30,7 @@ export class Engine {
         building.position.set(0, 0, 0);
         this.scene.add(building);
 
-        const ambientLight = new THREE.AmbientLight(0xCCCCCC, 0.8);
+        const ambientLight = new THREE.AmbientLight(0xcccccc, 0.8);
         this.scene.add(ambientLight);
 
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -39,7 +39,7 @@ export class Engine {
     }
 
     private setupEventListeners(): void {
-        window.addEventListener('resize', () => {
+        window.addEventListener("resize", () => {
             this.camera.updateAspectRatio(this.renderer.getAspectRatio());
             this.renderer.handleResize();
         });
@@ -49,16 +49,16 @@ export class Engine {
         if (!this.isRunning) return;
 
         this.animationId = requestAnimationFrame(this.animate);
-        
+
         this.inputManager.update();
         this.camera.update();
-        
+
         this.renderer.render(this.scene, this.camera.getCamera());
     };
 
     public start(): void {
         if (this.isRunning) return;
-        
+
         this.isRunning = true;
         this.animate();
     }

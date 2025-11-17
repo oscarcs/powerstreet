@@ -1,4 +1,4 @@
-import * as THREE from 'three/webgpu';
+import * as THREE from "three/webgpu";
 
 export class Renderer {
     private renderer: THREE.WebGPURenderer;

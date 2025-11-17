@@ -5,19 +5,27 @@ export default {
         if (request.url.endsWith("/websocket")) {
             const upgradeHeader = request.headers.get("Upgrade");
             if (!upgradeHeader || upgradeHeader !== "websocket") {
-                return new Response("Worker expected Upgrade: websocket", { status: 426 });
+                return new Response("Worker expected Upgrade: websocket", {
+                    status: 426,
+                });
             }
 
             if (request.method !== "GET") {
-                return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+                return new Response("Method not allowed", {
+                    status: 405,
+                    headers: { Allow: "GET" },
+                });
             }
 
             let stub = env.WORLDSYNC_DO.getByName("default");
             return stub.fetch(request);
         }
 
-        return new Response(`Supported endpoints: /websocket: expects a WebSocket Upgrade request`, { status: 200, headers: { "Content-Type": "text/plain" } });
-    }
+        return new Response(
+            `Supported endpoints: /websocket: expects a WebSocket Upgrade request`,
+            { status: 200, headers: { "Content-Type": "text/plain" } },
+        );
+    },
 };
 
 export class WorldSyncDurableObject extends DurableObject {
@@ -34,7 +42,7 @@ export class WorldSyncDurableObject extends DurableObject {
             }
         });
 
-        this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+        this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     }
 
     async fetch(request: Request): Promise<Response> {
@@ -49,7 +57,7 @@ export class WorldSyncDurableObject extends DurableObject {
         server.serializeAttachment({ id });
         this.sessions.set(server, { id });
 
-        return new Response(null, { status: 101, webSocket: client } );
+        return new Response(null, { status: 101, webSocket: client });
     }
 
     async webSocketMessage(webSocket: WebSocket, message: string | ArrayBuffer) {
@@ -60,6 +68,6 @@ export class WorldSyncDurableObject extends DurableObject {
 
     async webSocketClose(webSocket: WebSocket, code: number, reason: string, wasClean: boolean) {
         this.sessions.delete(webSocket);
-        webSocket.close(code, 'Connection closed');
+        webSocket.close(code, "Connection closed");
     }
 }

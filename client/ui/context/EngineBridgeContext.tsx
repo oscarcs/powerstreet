@@ -1,5 +1,5 @@
-import { createContext, ReactNode, useContext } from 'react';
-import type { EngineBridge } from '../engineBridge';
+import { createContext, ReactNode, useContext } from "react";
+import type { EngineBridge } from "../engineBridge";
 
 const EngineBridgeContext = createContext<EngineBridge | null>(null);
 
@@ -16,7 +16,7 @@ export const useEngineBridgeContext = (): EngineBridge => {
     const bridge = useContext(EngineBridgeContext);
 
     if (!bridge) {
-        throw new Error('useEngineBridgeContext must be used within an EngineBridgeProvider');
+        throw new Error("useEngineBridgeContext must be used within an EngineBridgeProvider");
     }
 
     return bridge;

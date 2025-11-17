@@ -1,127 +1,125 @@
-import * as React from "react"
-import {
-    Building,
-    LandPlot,
-    MousePointer2,
-    SplinePointer,
-    type LucideIcon,
-} from "lucide-react"
+import * as React from "react";
+import { Building, LandPlot, MousePointer2, SplinePointer, type LucideIcon } from "lucide-react";
 
 import {
     Toolbar,
     ToolbarSeparator,
     ToolbarToggleGroup,
     ToolbarToggleItem,
-} from "./components/toolbar"
+} from "./components/toolbar";
 import {
     Tooltip,
     TooltipArrow,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
-} from "./components/tooltip"
-import { cn } from "./utils"
+} from "./components/tooltip";
+import { cn } from "./utils";
 
-type ToolId = "select" | "draw-streets" | "zoning" | "building"
+type ToolId = "select" | "draw-streets" | "zoning" | "building";
 
 interface ToolDescriptor {
-    id: ToolId
-    label: string
-    icon: LucideIcon
+    id: ToolId;
+    label: string;
+    icon: LucideIcon;
 }
 
-const TOOLBAR_INITIAL_POSITION = { x: 24, y: 24 }
+const TOOLBAR_INITIAL_POSITION = { x: 24, y: 24 };
 
 const tools: ToolDescriptor[] = [
     { id: "select", label: "Select", icon: MousePointer2 },
     { id: "draw-streets", label: "Draw Streets", icon: SplinePointer },
     { id: "zoning", label: "Zoning", icon: LandPlot },
     { id: "building", label: "Building", icon: Building },
-]
+];
 
 export const MainToolbar = () => {
-    const [activeTool, setActiveTool] = React.useState<ToolId>("select")
-    const [position, setPosition] = React.useState(() => ({ ...TOOLBAR_INITIAL_POSITION }))
-    const [isDragging, setIsDragging] = React.useState(false)
-    const dragOffset = React.useRef({ x: 0, y: 0 })
+    const [activeTool, setActiveTool] = React.useState<ToolId>("select");
+    const [position, setPosition] = React.useState(() => ({
+        ...TOOLBAR_INITIAL_POSITION,
+    }));
+    const [isDragging, setIsDragging] = React.useState(false);
+    const dragOffset = React.useRef({ x: 0, y: 0 });
 
     const handlePointerDown = React.useCallback(
         (event: React.PointerEvent<HTMLDivElement>) => {
             if (event.button !== 0) {
-                return
+                return;
             }
 
             dragOffset.current = {
                 x: event.clientX - position.x,
                 y: event.clientY - position.y,
-            }
+            };
 
-            setIsDragging(true)
-            event.currentTarget.setPointerCapture(event.pointerId)
-            event.preventDefault()
+            setIsDragging(true);
+            event.currentTarget.setPointerCapture(event.pointerId);
+            event.preventDefault();
         },
-        [position.x, position.y]
-    )
+        [position.x, position.y],
+    );
 
     const handlePointerMove = React.useCallback(
         (event: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging) {
-                return
+                return;
             }
 
             setPosition({
                 x: event.clientX - dragOffset.current.x,
                 y: event.clientY - dragOffset.current.y,
-            })
+            });
         },
-        [isDragging]
-    )
+        [isDragging],
+    );
 
     const handlePointerUp = React.useCallback(
         (event: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging) {
-                return
+                return;
             }
 
-            setIsDragging(false)
+            setIsDragging(false);
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId)
+                event.currentTarget.releasePointerCapture(event.pointerId);
             }
         },
-        [isDragging]
-    )
+        [isDragging],
+    );
 
     const handlePointerCancel = React.useCallback(
         (event: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging) {
-                return
+                return;
             }
 
-            setIsDragging(false)
+            setIsDragging(false);
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId)
+                event.currentTarget.releasePointerCapture(event.pointerId);
             }
         },
-        [isDragging]
-    )
+        [isDragging],
+    );
 
     React.useEffect(() => {
         if (!isDragging) {
-            return
+            return;
         }
 
-        const previousUserSelect = document.body.style.userSelect
-        document.body.style.userSelect = "none"
+        const previousUserSelect = document.body.style.userSelect;
+        document.body.style.userSelect = "none";
 
         return () => {
-            document.body.style.userSelect = previousUserSelect
-        }
-    }, [isDragging])
+            document.body.style.userSelect = previousUserSelect;
+        };
+    }, [isDragging]);
 
     return (
         <div
             className="pointer-events-auto absolute left-0 top-0 z-20"
-            style={{ transform: `translate3d(${position.x}px, ${position.y}px, 0)` }}
+            style={{
+                transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+            }}
         >
             <Toolbar
                 orientation="vertical"
@@ -133,14 +131,13 @@ export const MainToolbar = () => {
                     className={cn(
                         "rounded-md px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors",
                         "cursor-grab select-none touch-none",
-                        isDragging && "cursor-grabbing text-foreground"
+                        isDragging && "cursor-grabbing text-foreground",
                     )}
                     onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerCancel={handlePointerCancel}
-                >
-                </div>
+                ></div>
                 <ToolbarSeparator />
                 <TooltipProvider delayDuration={120} skipDelayDuration={250}>
                     <ToolbarToggleGroup
@@ -150,15 +147,14 @@ export const MainToolbar = () => {
                         value={activeTool}
                         onValueChange={(value) => {
                             if (!value) {
-                                return
+                                return;
                             }
-
-                            setActiveTool(value as ToolId)
+                            setActiveTool(value as ToolId);
                         }}
                         className="items-stretch"
                     >
                         {tools.map((tool) => {
-                            const Icon = tool.icon
+                            const Icon = tool.icon;
                             return (
                                 <Tooltip key={tool.id}>
                                     <TooltipTrigger asChild>
@@ -167,6 +163,11 @@ export const MainToolbar = () => {
                                             size="icon"
                                             variant="ghost"
                                             aria-label={tool.label}
+                                            className={cn(
+                                                "transition-colors",
+                                                activeTool === tool.id &&
+                                                    "bg-blue-500 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-500 hover:text-white",
+                                            )}
                                         >
                                             <Icon className="size-5" />
                                         </ToolbarToggleItem>
@@ -180,11 +181,11 @@ export const MainToolbar = () => {
                                         <TooltipArrow />
                                     </TooltipContent>
                                 </Tooltip>
-                            )
+                            );
                         })}
                     </ToolbarToggleGroup>
                 </TooltipProvider>
             </Toolbar>
         </div>
-    )
-}
+    );
+};

@@ -1,1 +1,1 @@
-export * from './GeoJSONLoader';
+export * from "./GeoJSONLoader";

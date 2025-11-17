@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import * as TooltipPrimitive from "@radix-ui/react-tooltip"
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
-import { cn } from "../utils"
+import { cn } from "../utils";
 
-const TooltipProvider = TooltipPrimitive.Provider
+const TooltipProvider = TooltipPrimitive.Provider;
 
-const Tooltip = TooltipPrimitive.Root
+const Tooltip = TooltipPrimitive.Root;
 
-const TooltipTrigger = TooltipPrimitive.Trigger
+const TooltipTrigger = TooltipPrimitive.Trigger;
 
-const TooltipPortal = TooltipPrimitive.Portal
+const TooltipPortal = TooltipPrimitive.Portal;
 
 const TooltipContent = React.forwardRef<
     React.ElementRef<typeof TooltipPrimitive.Content>,
@@ -27,39 +27,28 @@ const TooltipContent = React.forwardRef<
                     "data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95",
                     "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
                     "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1",
-                    className
+                    className,
                 )}
                 {...props}
             />
         </TooltipPortal>
-    )
-})
+    );
+});
 
 const TooltipArrow = React.forwardRef<
     React.ElementRef<typeof TooltipPrimitive.Arrow>,
     React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Arrow>
 >(function TooltipArrow({ className, ...props }, ref) {
     return (
-        <TooltipPrimitive.Arrow
-            ref={ref}
-            className={cn("fill-border/80", className)}
-            {...props}
-        />
-    )
-})
+        <TooltipPrimitive.Arrow ref={ref} className={cn("fill-border/80", className)} {...props} />
+    );
+});
 
-Tooltip.displayName = TooltipPrimitive.Root.displayName
-TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName
-TooltipPortal.displayName = TooltipPrimitive.Portal.displayName
-TooltipProvider.displayName = TooltipPrimitive.Provider.displayName
-TooltipContent.displayName = TooltipPrimitive.Content.displayName
-TooltipArrow.displayName = TooltipPrimitive.Arrow.displayName
+Tooltip.displayName = TooltipPrimitive.Root.displayName;
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName;
+TooltipPortal.displayName = TooltipPrimitive.Portal.displayName;
+TooltipProvider.displayName = TooltipPrimitive.Provider.displayName;
+TooltipContent.displayName = TooltipPrimitive.Content.displayName;
+TooltipArrow.displayName = TooltipPrimitive.Arrow.displayName;
 
-export {
-    Tooltip,
-    TooltipArrow,
-    TooltipContent,
-    TooltipPortal,
-    TooltipProvider,
-    TooltipTrigger,
-}
+export { Tooltip, TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipTrigger };

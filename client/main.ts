@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Engine } from "./engine/Engine";
-import { createEngineBridge } from "./ui/engineBridge";
+import { createLocalStore } from "./data";
 import App from "./ui/App";
 import "./main.css";
 
@@ -12,16 +12,17 @@ if (!canvas) {
     throw new Error('Canvas element with id="canvas" was not found.');
 }
 
+const localStore = createLocalStore();
 const engine = new Engine(canvas);
-const bridge = createEngineBridge(engine);
 engine.start();
 
 let reactRoot: Root | null = null;
 
 if (uiContainer) {
     reactRoot = createRoot(uiContainer);
-    reactRoot.render(createElement(App, { bridge }));
-} else {
+    reactRoot.render(createElement(App, { store: localStore }));
+}
+else {
     console.warn('UI container with id="ui-root" was not found. React UI will not mount.');
 }
 

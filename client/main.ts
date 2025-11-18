@@ -14,7 +14,6 @@ if (!canvas) {
 
 const localStore = createLocalStore();
 const engine = new Engine(canvas);
-engine.start();
 
 let reactRoot: Root | null = null;
 
@@ -26,16 +25,33 @@ else {
     console.warn('UI container with id="ui-root" was not found. React UI will not mount.');
 }
 
-const cleanUp = () => {
+const engineStartPromise = (async () => {
+    try {
+        await engine.start();
+    }
+    catch (error) {
+        console.error("Failed to start rendering engine.", error);
+    }
+})();
+
+const cleanUp = async () => {
     reactRoot?.unmount();
+
+    try {
+        await engineStartPromise;
+    }
+    catch {
+        // start errors are already reported above
+    }
+
     engine.dispose();
 };
 
-window.addEventListener("beforeunload", cleanUp);
+window.addEventListener("beforeunload", () => cleanUp());
 
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
-        window.removeEventListener("beforeunload", cleanUp);
-        cleanUp();
+        window.removeEventListener("beforeunload", () => cleanUp());
+        void cleanUp();
     });
 }

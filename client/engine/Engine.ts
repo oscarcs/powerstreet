@@ -10,6 +10,9 @@ export class Engine {
     private scene: THREE.Scene;
     private isRunning: boolean = false;
     private animationId: number | null = null;
+    private initializationPromise: Promise<void> | null = null;
+    private startPromise: Promise<void> | null = null;
+    private isDisposed = false;
 
     constructor(canvas: HTMLCanvasElement) {
         this.scene = new THREE.Scene();
@@ -46,7 +49,7 @@ export class Engine {
     }
 
     private animate = (): void => {
-        if (!this.isRunning) return;
+        if (!this.isRunning || this.isDisposed) return;
 
         this.animationId = requestAnimationFrame(this.animate);
 
@@ -56,11 +59,46 @@ export class Engine {
         this.renderer.render(this.scene, this.camera.getCamera());
     };
 
-    public start(): void {
-        if (this.isRunning) return;
+    public async initialize(): Promise<void> {
+        if (this.isDisposed) {
+            throw new Error("Engine has been disposed and cannot be reinitialized.");
+        }
 
-        this.isRunning = true;
-        this.animate();
+        if (!this.initializationPromise) {
+            this.initializationPromise = this.renderer
+                .initialize()
+                .catch((error) => {
+                    this.initializationPromise = null;
+                    throw error;
+                });
+        }
+
+        await this.initializationPromise;
+    }
+
+    public async start(): Promise<void> {
+        if (this.isRunning || this.isDisposed) {
+            return;
+        }
+
+        if (!this.startPromise) {
+            this.startPromise = (async () => {
+                try {
+                    await this.initialize();
+
+                    if (this.isDisposed) {
+                        return;
+                    }
+
+                    this.isRunning = true;
+                    this.animate();
+                } finally {
+                    this.startPromise = null;
+                }
+            })();
+        }
+
+        await this.startPromise;
     }
 
     public stop(): void {
@@ -84,6 +122,11 @@ export class Engine {
     }
 
     public dispose(): void {
+        if (this.isDisposed) {
+            return;
+        }
+
+        this.isDisposed = true;
         this.stop();
         this.inputManager.dispose();
         this.renderer.dispose();

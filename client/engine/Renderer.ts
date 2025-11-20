@@ -7,6 +7,7 @@ export class Renderer {
 
     constructor(canvas: HTMLCanvasElement) {
         this.renderer = new THREE.WebGPURenderer({ canvas });
+        this.renderer.shadowMap.enabled = true;
     }
 
     public async initialize(): Promise<void> {

@@ -20,16 +20,14 @@ let reactRoot: Root | null = null;
 if (uiContainer) {
     reactRoot = createRoot(uiContainer);
     reactRoot.render(createElement(App, { store: localStore }));
-}
-else {
+} else {
     console.warn('UI container with id="ui-root" was not found. React UI will not mount.');
 }
 
 const engineStartPromise = (async () => {
     try {
         await engine.start();
-    }
-    catch (error) {
+    } catch (error) {
         console.error("Failed to start rendering engine.", error);
     }
 })();
@@ -39,8 +37,7 @@ const cleanUp = async () => {
 
     try {
         await engineStartPromise;
-    }
-    catch {
+    } catch {
         // start errors are already reported above
     }
 

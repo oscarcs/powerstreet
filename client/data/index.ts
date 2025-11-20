@@ -1,2 +1,2 @@
 export * from "./createLocalStore";
-// export * from "./createWorldsyncStore";
+export * from "./createWorldsyncStore";

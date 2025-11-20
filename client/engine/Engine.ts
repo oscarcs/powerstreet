@@ -29,14 +29,14 @@ export class Engine {
     private setupScene(): void {
         const bHeight = 5;
         const geometry = new THREE.BoxGeometry(1, bHeight, 1);
-        const material = new THREE.MeshLambertMaterial({ color: 0xFF6060 });
+        const material = new THREE.MeshLambertMaterial({ color: 0xff6060 });
         const building = new THREE.Mesh(geometry, material);
         building.position.set(0, bHeight / 2, 0);
         building.castShadow = true;
         this.scene.add(building);
 
         const groundGeometry = new THREE.PlaneGeometry(100, 100);
-        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0xF0F0F0 });
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0xf0f0f0 });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
         ground.position.y = 0;
@@ -79,12 +79,10 @@ export class Engine {
         }
 
         if (!this.initializationPromise) {
-            this.initializationPromise = this.renderer
-                .initialize()
-                .catch((error) => {
-                    this.initializationPromise = null;
-                    throw error;
-                });
+            this.initializationPromise = this.renderer.initialize().catch((error) => {
+                this.initializationPromise = null;
+                throw error;
+            });
         }
 
         await this.initializationPromise;

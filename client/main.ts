@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Store } from "tinybase";
 import { Engine } from "./engine/Engine";
-import { createLocalStore } from "./data";
+import { createLocalStore, createWorldsyncStore } from "./data";
 import App from "./ui/App";
 import "./main.css";
 
@@ -13,13 +14,19 @@ if (!canvas) {
 }
 
 const localStore = createLocalStore();
+const worldsyncStore = createWorldsyncStore();
 const engine = new Engine(canvas);
 
 let reactRoot: Root | null = null;
 
 if (uiContainer) {
     reactRoot = createRoot(uiContainer);
-    reactRoot.render(createElement(App, { store: localStore }));
+    reactRoot.render(
+        createElement(App, {
+            localStore: localStore as unknown as Store,
+            worldsyncStore: worldsyncStore as unknown as Store,
+        }),
+    );
 } else {
     console.warn('UI container with id="ui-root" was not found. React UI will not mount.');
 }

@@ -4,7 +4,8 @@ import { Inspector } from "tinybase/ui-react-inspector";
 import { Provider as TinyBaseProvider } from "tinybase/ui-react";
 
 interface AppProps {
-    store: Store;
+    localStore: Store;
+    worldsyncStore: Store;
 }
 
 const UILayer = () => {
@@ -16,9 +17,9 @@ const UILayer = () => {
     );
 };
 
-export const App = ({ store }: AppProps) => {
+export const App = ({ localStore, worldsyncStore }: AppProps) => {
     return (
-        <TinyBaseProvider storesById={{ localStore: store }}>
+        <TinyBaseProvider storesById={{ localStore, worldsyncStore }}>
             <UILayer />
         </TinyBaseProvider>
     );

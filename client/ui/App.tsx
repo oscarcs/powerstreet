@@ -18,7 +18,7 @@ const UILayer = () => {
 
 export const App = ({ store }: AppProps) => {
     return (
-        <TinyBaseProvider store={store}>
+        <TinyBaseProvider storesById={{ localStore: store }}>
             <UILayer />
         </TinyBaseProvider>
     );

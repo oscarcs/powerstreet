@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useStore, useValue } from "tinybase/ui-react";
 import { Building, LandPlot, MousePointer2, SplinePointer, type LucideIcon } from "lucide-react";
 
 import { Toolbar, ToolbarToggleGroup, ToolbarToggleItem } from "./components/toolbar";
@@ -29,7 +30,8 @@ const tools: ToolDescriptor[] = [
 ];
 
 export const MainToolbar = () => {
-    const [activeTool, setActiveTool] = React.useState<ToolId>("select");
+    const activeTool = (useValue("currentTool", "localStore") as ToolId) ?? "select";
+    const store = useStore("localStore");
     const [position, setPosition] = React.useState(() => ({
         ...TOOLBAR_INITIAL_POSITION,
     }));
@@ -143,7 +145,7 @@ export const MainToolbar = () => {
                             if (!value) {
                                 return;
                             }
-                            setActiveTool(value as ToolId);
+                            store?.setValue("currentTool", value);
                         }}
                         className="items-stretch p-2"
                     >

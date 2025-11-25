@@ -16,6 +16,7 @@ if (!canvas) {
 const localStore = createLocalStore();
 const worldsyncStore = createWorldsyncStore();
 const engine = new Engine(canvas, worldsyncStore);
+engine.setLocalStore(localStore);
 
 let reactRoot: Root | null = null;
 

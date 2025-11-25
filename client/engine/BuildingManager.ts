@@ -2,16 +2,79 @@ import * as THREE from "three";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { constructPolygonMeshObject } from "../geometry/constructPolygonMeshObject";
 import { PolygonCoords } from "../geometry/types";
+import { LocalStore } from "../data/createLocalStore";
 
 export class BuildingManager {
     private scene: THREE.Scene;
     private store: WorldsyncStore;
+    private localStore: LocalStore | null = null;
     private buildingMeshes: Map<string, THREE.Mesh> = new Map();
+    private originalMaterials: Map<string, THREE.Material> = new Map();
+    private selectedBuildingId: string | null = null;
+    private selectionListenerId: string | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
         this.store = store;
         this.initialize();
+    }
+
+    public setLocalStore(localStore: LocalStore): void {
+        this.localStore = localStore;
+        this.selectionListenerId = this.localStore.addValueListener(
+            "selectedBuildingId",
+            (_store, _valueId, newValue) => {
+                this.updateSelection(newValue as string | undefined);
+            },
+        );
+        // Apply initial selection state
+        const initialSelection = this.localStore.getValue("selectedBuildingId");
+        if (initialSelection) {
+            this.updateSelection(initialSelection as string);
+        }
+    }
+
+    private updateSelection(newBuildingId: string | undefined): void {
+        // Restore previous selection to solid
+        if (this.selectedBuildingId) {
+            const prevMesh = this.buildingMeshes.get(this.selectedBuildingId);
+            const prevOriginal = this.originalMaterials.get(this.selectedBuildingId);
+            if (prevMesh && prevOriginal) {
+                if (!Array.isArray(prevMesh.material)) {
+                    prevMesh.material.dispose();
+                }
+                prevMesh.material = prevOriginal;
+            }
+        }
+
+        this.selectedBuildingId = newBuildingId ?? null;
+
+        // Apply semi-transparent material to new selection
+        if (this.selectedBuildingId) {
+            const mesh = this.buildingMeshes.get(this.selectedBuildingId);
+            if (mesh && !Array.isArray(mesh.material)) {
+                const originalMaterial = mesh.material as THREE.MeshLambertMaterial;
+                // Store original if not already stored
+                if (!this.originalMaterials.has(this.selectedBuildingId)) {
+                    this.originalMaterials.set(this.selectedBuildingId, originalMaterial);
+                }
+                // Create semi-transparent copy
+                const selectedMaterial = new THREE.MeshLambertMaterial({
+                    color: originalMaterial.color,
+                    transparent: true,
+                    opacity: 0.5,
+                });
+                mesh.material = selectedMaterial;
+            }
+        }
+    }
+
+    public getBuildingMeshes(): THREE.Mesh[] {
+        return Array.from(this.buildingMeshes.values());
+    }
+
+    public getBuildingIdFromMesh(mesh: THREE.Object3D): string | null {
+        return (mesh.userData.buildingId as string) ?? null;
     }
 
     private initialize() {
@@ -79,6 +142,10 @@ export class BuildingManager {
         mesh.material = material;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        mesh.userData.buildingId = buildingId;
+
+        // Store original material for selection restoration
+        this.originalMaterials.set(buildingId, material);
 
         // Rotate to align with world coordinates (Y-up)
         mesh.rotation.x = -Math.PI / 2;
@@ -92,6 +159,9 @@ export class BuildingManager {
     }
 
     public dispose() {
+        if (this.selectionListenerId && this.localStore) {
+            this.localStore.delListener(this.selectionListenerId);
+        }
         this.buildingMeshes.forEach((mesh) => {
             this.scene.remove(mesh);
             mesh.geometry.dispose();
@@ -102,5 +172,6 @@ export class BuildingManager {
             }
         });
         this.buildingMeshes.clear();
+        this.originalMaterials.clear();
     }
 }

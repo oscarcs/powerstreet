@@ -44,19 +44,22 @@ export class Camera {
         right.crossVectors(direction, this.camera.up);
         right.normalize();
 
+        const distanceToTarget = this.camera.position.distanceTo(this.controls.target);
+        const scaledSpeed = moveSpeed * distanceToTarget;
+
         const movement = new THREE.Vector3();
 
         if (keys.ArrowUp) {
-            movement.add(direction.clone().multiplyScalar(moveSpeed));
+            movement.add(direction.clone().multiplyScalar(scaledSpeed));
         }
         if (keys.ArrowDown) {
-            movement.add(direction.clone().multiplyScalar(-moveSpeed));
+            movement.add(direction.clone().multiplyScalar(-scaledSpeed));
         }
         if (keys.ArrowRight) {
-            movement.add(right.clone().multiplyScalar(moveSpeed));
+            movement.add(right.clone().multiplyScalar(scaledSpeed));
         }
         if (keys.ArrowLeft) {
-            movement.add(right.clone().multiplyScalar(-moveSpeed));
+            movement.add(right.clone().multiplyScalar(-scaledSpeed));
         }
 
         this.controls.target.add(movement);

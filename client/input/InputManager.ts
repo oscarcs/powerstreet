@@ -2,7 +2,7 @@ import { Camera } from "../engine/Camera";
 
 export class InputManager {
     private camera: Camera;
-    private moveSpeed: number = 0.1;
+    private moveSpeed: number = 0.01;
     private keys: { [key: string]: boolean } = {
         ArrowUp: false,
         ArrowDown: false,

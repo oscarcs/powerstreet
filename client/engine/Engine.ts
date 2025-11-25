@@ -4,6 +4,7 @@ import { Camera } from "./Camera";
 import { InputManager } from "../input/InputManager";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { BuildingManager } from "./BuildingManager";
+import { LocalStore } from "../data/createLocalStore";
 
 export class Engine {
     private renderer: Renderer;
@@ -11,11 +12,15 @@ export class Engine {
     private inputManager: InputManager;
     private scene: THREE.Scene;
     private buildingManager: BuildingManager;
+    private localStore: LocalStore | null = null;
+    private raycaster: THREE.Raycaster;
+    private mouse: THREE.Vector2;
     private isRunning: boolean = false;
     private animationId: number | null = null;
     private initializationPromise: Promise<void> | null = null;
     private startPromise: Promise<void> | null = null;
     private isDisposed = false;
+    private boundOnClick: ((event: MouseEvent) => void) | null = null;
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
         this.scene = new THREE.Scene();
@@ -26,8 +31,54 @@ export class Engine {
         this.inputManager = new InputManager(this.camera);
         this.buildingManager = new BuildingManager(this.scene, store);
 
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+
         this.setupScene();
         this.setupEventListeners();
+    }
+
+    public setLocalStore(localStore: LocalStore): void {
+        this.localStore = localStore;
+        this.buildingManager.setLocalStore(localStore);
+        this.setupClickListener();
+    }
+
+    private setupClickListener(): void {
+        const canvas = this.renderer.getRenderer().domElement;
+        this.boundOnClick = this.onClick.bind(this);
+        canvas.addEventListener("click", this.boundOnClick);
+    }
+
+    private onClick(event: MouseEvent): void {
+        if (!this.localStore) return;
+
+        const currentTool = this.localStore.getValue("currentTool");
+        if (currentTool !== "select") return;
+
+        const canvas = this.renderer.getRenderer().domElement;
+        const rect = canvas.getBoundingClientRect();
+
+        // Convert mouse position to normalized device coordinates (-1 to +1)
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera.getCamera());
+
+        const buildingMeshes = this.buildingManager.getBuildingMeshes();
+        const intersects = this.raycaster.intersectObjects(buildingMeshes, false);
+
+        if (intersects.length > 0) {
+            const clickedMesh = intersects[0].object;
+            const buildingId = this.buildingManager.getBuildingIdFromMesh(clickedMesh);
+            const currentSelection = this.localStore.getValue("selectedBuildingId");
+
+            if (buildingId === currentSelection) {
+                this.localStore.delValue("selectedBuildingId");
+            } else if (buildingId) {
+                this.localStore.setValue("selectedBuildingId", buildingId);
+            }
+        }
     }
 
     private setupScene(): void {
@@ -131,6 +182,13 @@ export class Engine {
 
         this.isDisposed = true;
         this.stop();
+
+        if (this.boundOnClick) {
+            const canvas = this.renderer.getRenderer().domElement;
+            canvas.removeEventListener("click", this.boundOnClick);
+            this.boundOnClick = null;
+        }
+
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.renderer.dispose();

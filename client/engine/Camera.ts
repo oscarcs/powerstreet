@@ -32,6 +32,12 @@ export class Camera {
         this.controls.update();
     }
 
+    public setControlsEnabled(enabled: boolean): void {
+        if (this.controls) {
+            this.controls.enabled = enabled;
+        }
+    }
+
     public handleMovement(keys: { [key: string]: boolean }, moveSpeed: number): void {
         if (!this.controls) return;
 

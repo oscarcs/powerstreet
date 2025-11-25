@@ -12,6 +12,7 @@ export class BuildingManager {
     private originalMaterials: Map<string, THREE.Material> = new Map();
     private selectedBuildingId: string | null = null;
     private selectionListenerId: string | null = null;
+    private nodeListenerId: string | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
@@ -73,6 +74,10 @@ export class BuildingManager {
         return Array.from(this.buildingMeshes.values());
     }
 
+    public getBuildingMesh(buildingId: string): THREE.Mesh | undefined {
+        return this.buildingMeshes.get(buildingId);
+    }
+
     public getBuildingIdFromMesh(mesh: THREE.Object3D): string | null {
         return (mesh.userData.buildingId as string) ?? null;
     }
@@ -87,6 +92,21 @@ export class BuildingManager {
                 this.createBuilding(rowId);
             }
         });
+
+        // Listen for node coordinate changes to rebuild affected buildings
+        this.nodeListenerId = this.store.addCellListener(
+            "nodes",
+            null,
+            null,
+            (_store, _tableId, rowId, cellId) => {
+                if (cellId === "x" || cellId === "z") {
+                    const row = this.store.getRow("nodes", rowId);
+                    if (row && row.bldgId) {
+                        this.createBuilding(row.bldgId as string);
+                    }
+                }
+            },
+        );
     }
 
     private createBuilding(buildingId: string) {
@@ -147,6 +167,16 @@ export class BuildingManager {
         // Store original material for selection restoration
         this.originalMaterials.set(buildingId, material);
 
+        // If this building is currently selected, apply the semi-transparent material
+        if (this.selectedBuildingId === buildingId) {
+            const selectedMaterial = new THREE.MeshLambertMaterial({
+                color: material.color,
+                transparent: true,
+                opacity: 0.5,
+            });
+            mesh.material = selectedMaterial;
+        }
+
         // Rotate to align with world coordinates (Y-up)
         mesh.rotation.x = -Math.PI / 2;
 
@@ -161,6 +191,9 @@ export class BuildingManager {
     public dispose() {
         if (this.selectionListenerId && this.localStore) {
             this.localStore.delListener(this.selectionListenerId);
+        }
+        if (this.nodeListenerId) {
+            this.store.delListener(this.nodeListenerId);
         }
         this.buildingMeshes.forEach((mesh) => {
             this.scene.remove(mesh);

@@ -91,6 +91,14 @@ export class Engine {
         this.updateMousePosition(event);
         this.raycaster.setFromCamera(this.mouse, this.camera.getCamera());
 
+        // Temporarily hide the selected building so gizmos can be picked through it
+        const editingBuildingId = this.editGizmoManager.getEditingBuildingId();
+        const editingMesh = editingBuildingId
+            ? this.buildingManager.getBuildingMesh(editingBuildingId)
+            : null;
+        const wasVisible = editingMesh?.visible ?? true;
+        if (editingMesh) editingMesh.visible = false;
+
         const handleMeshes = this.editGizmoManager.getHandleMeshes();
         const intersects = this.raycaster.intersectObjects(handleMeshes, false);
 
@@ -107,6 +115,9 @@ export class Engine {
                 }
             }
         }
+
+        // Restore building visibility
+        if (editingMesh) editingMesh.visible = wasVisible;
     }
 
     private onMouseMove(event: MouseEvent): void {
@@ -122,8 +133,20 @@ export class Engine {
         } else {
             // Handle hover effects
             this.raycaster.setFromCamera(this.mouse, this.camera.getCamera());
+
+            // Temporarily hide the selected building so gizmos can be picked through it
+            const editingBuildingId = this.editGizmoManager.getEditingBuildingId();
+            const editingMesh = editingBuildingId
+                ? this.buildingManager.getBuildingMesh(editingBuildingId)
+                : null;
+            const wasVisible = editingMesh?.visible ?? true;
+            if (editingMesh) editingMesh.visible = false;
+
             const handleMeshes = this.editGizmoManager.getHandleMeshes();
             const intersects = this.raycaster.intersectObjects(handleMeshes, false);
+
+            // Restore building visibility
+            if (editingMesh) editingMesh.visible = wasVisible;
 
             if (intersects.length > 0) {
                 const hoveredHandle = intersects[0].object;

@@ -25,7 +25,7 @@ export class Camera {
         this.controls.minDistance = 1;
         this.controls.maxDistance = 250;
         this.controls.enablePan = false;
-        this.camera.position.set(3, 5, 5);
+        this.camera.position.set(100, 100, 100);
         this.controls.target.set(0, 0, 0);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
@@ -92,12 +92,6 @@ export class Camera {
     public setTarget(x: number, y: number, z: number): void {
         if (this.controls) {
             this.controls.target.set(x, y, z);
-        }
-    }
-
-    public setControlsEnabled(enabled: boolean): void {
-        if (this.controls) {
-            this.controls.enabled = enabled;
         }
     }
 }

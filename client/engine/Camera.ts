@@ -94,4 +94,10 @@ export class Camera {
             this.controls.target.set(x, y, z);
         }
     }
+
+    public setControlsEnabled(enabled: boolean): void {
+        if (this.controls) {
+            this.controls.enabled = enabled;
+        }
+    }
 }

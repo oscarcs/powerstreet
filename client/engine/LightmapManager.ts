@@ -16,16 +16,19 @@ export interface LightmapSettings {
     lightRadius?: number;
     /** Weight for ambient occlusion samples vs direct light (default: 0.5) */
     ambientWeight?: number;
+    /** Number of frames to crossfade from old lightmap to new (default: 60) */
+    transitionFrames?: number;
 }
 
 const DEFAULT_SETTINGS: Required<LightmapSettings> = {
     lightMapRes: 1024,
-    shadowMapRes: 512,
+    shadowMapRes: 1024,
     lightCount: 4,
-    blendWindow: 200,
+    blendWindow: 100,
     blurEdges: true,
-    lightRadius: 50,
-    ambientWeight: 0.5,
+    lightRadius: 15,
+    ambientWeight: 0.25,
+    transitionFrames: 120,
 };
 
 /**
@@ -62,7 +65,20 @@ export class LightmapManager {
     /** Maximum frames to accumulate before auto-pausing (0 = never pause) */
     public maxAccumulationFrames: number = 0;
 
-    constructor(renderer: THREE.WebGPURenderer, scene: THREE.Scene, settings: LightmapSettings = {}) {
+    /** Stored lightmap intensities for crossfade transition */
+    private storedLightmapIntensities: Map<string, number> = new Map();
+
+    /** Current transition progress (0 = old lightmap, 1 = new lightmap) */
+    private transitionProgress: number = 1;
+
+    /** Whether a transition is in progress */
+    private isTransitioning: boolean = false;
+
+    constructor(
+        renderer: THREE.WebGPURenderer,
+        scene: THREE.Scene,
+        settings: LightmapSettings = {},
+    ) {
         this.renderer = renderer;
         this.settings = { ...DEFAULT_SETTINGS, ...settings };
 
@@ -114,13 +130,13 @@ export class LightmapManager {
         id: string,
         mesh: THREE.Mesh,
         castShadow: boolean = true,
-        receiveShadow: boolean = true
+        receiveShadow: boolean = true,
     ): void {
         // Check for uv attribute (required by ProgressiveLightMap)
         if (!mesh.geometry.hasAttribute("uv")) {
             console.warn(
                 `LightmapManager: Mesh "${id}" does not have uv attribute. ` +
-                `Lightmap will not work.`
+                    `Lightmap will not work.`,
             );
         }
 
@@ -156,36 +172,55 @@ export class LightmapManager {
     /**
      * Rebuild the lightmap object list and reset accumulation.
      * Creates a fresh ProgressiveLightMap to clear any stale object references.
+     * Uses a smooth transition to avoid flashing.
      */
     public rebuild(): void {
-        // Dispose old progressive lightmap if it exists
+        // Store current lightmap intensities before rebuild for smooth transition
         if (this.progressiveLightMap) {
-            // Cast to any because dispose() exists but isn't in type definitions
+            this.storedLightmapIntensities.clear();
+            this.registeredMeshes.forEach((mesh, id) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.lightMap) {
+                    this.storedLightmapIntensities.set(id, mat.lightMapIntensity);
+                }
+            });
+
+            // Start transition - begin with low intensity on new lightmap
+            this.isTransitioning = true;
+            this.transitionProgress = 0;
+
+            // Dispose old progressive lightmap
             (this.progressiveLightMap as unknown as { dispose(): void }).dispose();
         }
 
         // Create a fresh ProgressiveLightMap to clear stale _lightMapContainers
         this.progressiveLightMap = new ProgressiveLightMap(
             this.renderer,
-            this.settings.lightMapRes
+            this.settings.lightMapRes,
         );
 
         const meshes = Array.from(this.registeredMeshes.values());
-        
+
         // Include baking lights in the lightmap objects
         const lightmapObjects: THREE.Object3D[] = [...meshes, ...this.bakingLights];
-        
-        console.log(`[LightmapManager] Rebuilding with ${meshes.length} meshes and ${this.bakingLights.length} lights`);
-        meshes.forEach(mesh => {
+
+        console.log(
+            `[LightmapManager] Rebuilding with ${meshes.length} meshes and ${this.bakingLights.length} lights`,
+        );
+        meshes.forEach((mesh, i) => {
             const hasUV = mesh.geometry.hasAttribute("uv");
-            // const hasNormal = mesh.geometry.hasAttribute("normal");
-            // const matType = (mesh.material as THREE.Material).type;
-            // console.log(`  Mesh ${i}: uv=${hasUV}, normal=${hasNormal}, castShadow=${mesh.castShadow}, receiveShadow=${mesh.receiveShadow}, material=${matType}`);
-            
+            const hasNormal = mesh.geometry.hasAttribute("normal");
+            console.log(
+                `  Mesh ${i}: hasUV=${hasUV}, hasNormal=${hasNormal}, castShadow=${mesh.castShadow}, receiveShadow=${mesh.receiveShadow}`,
+            );
+
             // Debug: Check UV ranges
             if (hasUV) {
                 const uvAttr = mesh.geometry.getAttribute("uv");
-                let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+                let minU = Infinity,
+                    maxU = -Infinity,
+                    minV = Infinity,
+                    maxV = -Infinity;
                 for (let j = 0; j < uvAttr.count; j++) {
                     const u = uvAttr.getX(j);
                     const v = uvAttr.getY(j);
@@ -194,23 +229,32 @@ export class LightmapManager {
                     minV = Math.min(minV, v);
                     maxV = Math.max(maxV, v);
                 }
-                // console.log(`    UV range: u=[${minU.toFixed(3)}, ${maxU.toFixed(3)}], v=[${minV.toFixed(3)}, ${maxV.toFixed(3)}]`);
+                console.log(
+                    `    UV range: [${minU.toFixed(2)}, ${maxU.toFixed(2)}] x [${minV.toFixed(2)}, ${maxV.toFixed(2)}]`,
+                );
             }
         });
-        
+
+        this.bakingLights.forEach((light, i) => {
+            console.log(
+                `  Light ${i}: castShadow=${light.castShadow}, intensity=${light.intensity}`,
+            );
+        });
+
         this.progressiveLightMap.addObjectsToLightMap(lightmapObjects);
-        
-        // Verify lightmap was applied to materials
-        meshes.forEach(mesh => {
+
+        // Set initial lightmap intensity based on transition state
+        meshes.forEach((mesh, _index) => {
             const mat = mesh.material as THREE.MeshStandardMaterial;
             const geom = mesh.geometry;
-            // const uvAttr = geom.getAttribute("uv");
             const uv1Attr = geom.getAttribute("uv1");
-            // console.log(`  Mesh ${i}: lightMap=${mat.lightMap ? 'SET' : 'null'}, uv count=${uvAttr?.count}, uv1 count=${uv1Attr?.count}`);
-            
+
             // Debug: Check uv1 ranges (the packed lightmap UVs)
             if (uv1Attr) {
-                let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+                let minU = Infinity,
+                    maxU = -Infinity,
+                    minV = Infinity,
+                    maxV = -Infinity;
                 for (let j = 0; j < uv1Attr.count; j++) {
                     const u = uv1Attr.getX(j);
                     const v = uv1Attr.getY(j);
@@ -219,16 +263,16 @@ export class LightmapManager {
                     minV = Math.min(minV, v);
                     maxV = Math.max(maxV, v);
                 }
-                // console.log(`    uv1 range: u=[${minU.toFixed(3)}, ${maxU.toFixed(3)}], v=[${minV.toFixed(3)}, ${maxV.toFixed(3)}]`);
             }
-            
-            // Boost lightmap intensity to make effect more visible
-            mat.lightMapIntensity = 2.0;
+
+            // Start at moderate intensity during transition to minimize flash
+            // The intensity will be ramped up slightly as the new lightmap converges
+            mat.lightMapIntensity = this.isTransitioning ? 1.5 : 2.0;
         });
-        
+
         // Show debug lightmap to see what's being baked
         this.progressiveLightMap.showDebugLightmap(true);
-        
+
         this.accumulationFrames = 0;
         this._dirty = false;
     }
@@ -247,7 +291,10 @@ export class LightmapManager {
             return;
         }
 
-        if (this.maxAccumulationFrames > 0 && this.accumulationFrames >= this.maxAccumulationFrames) {
+        if (
+            this.maxAccumulationFrames > 0 &&
+            this.accumulationFrames >= this.maxAccumulationFrames
+        ) {
             return;
         }
 
@@ -259,11 +306,49 @@ export class LightmapManager {
             this.progressiveLightMap.update(
                 camera,
                 this.settings.blendWindow,
-                this.settings.blurEdges
+                this.settings.blurEdges,
             );
         }
 
         this.accumulationFrames++;
+
+        // Handle smooth transition of lightmap intensity
+        if (this.isTransitioning) {
+            this.transitionProgress = Math.min(
+                1,
+                this.accumulationFrames / this.settings.transitionFrames,
+            );
+
+            // Use a smooth ease-out curve - starts fast, slows down at end
+            // This minimizes the initial flash by quickly reaching a reasonable intensity
+            const easedProgress = this.easeOutQuad(this.transitionProgress);
+
+            // Calculate target intensity - ramp up from 1.5 to 2.0
+            // Starting higher reduces the flash, final value provides good contrast
+            const targetIntensity = 1.5 + easedProgress * 0.5;
+
+            // Apply to all registered meshes
+            this.registeredMeshes.forEach((mesh) => {
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                if (mat.lightMap) {
+                    mat.lightMapIntensity = targetIntensity;
+                }
+            });
+
+            // End transition when complete
+            if (this.transitionProgress >= 1) {
+                this.isTransitioning = false;
+                this.storedLightmapIntensities.clear();
+            }
+        }
+    }
+
+    /**
+     * Quadratic ease-out function for subtle transitions.
+     * Starts fast and slows down - good for avoiding initial flash.
+     */
+    private easeOutQuad(t: number): number {
+        return 1 - (1 - t) * (1 - t);
     }
 
     private jitterLights(): void {
@@ -275,7 +360,7 @@ export class LightmapManager {
                 light.position.set(
                     this.lightOrigin.x + (Math.random() - 0.5) * lightRadius,
                     this.lightOrigin.y + (Math.random() - 0.5) * lightRadius,
-                    this.lightOrigin.z + (Math.random() - 0.5) * lightRadius
+                    this.lightOrigin.z + (Math.random() - 0.5) * lightRadius,
                 );
             } else {
                 // Uniform hemispherical distribution for ambient occlusion
@@ -285,8 +370,10 @@ export class LightmapManager {
 
                 light.position.set(
                     Math.cos(lambda) * Math.cos(phi) * radius + this.lightTarget.position.x,
-                    Math.abs(Math.cos(lambda) * Math.sin(phi) * radius) + this.lightTarget.position.y + 20,
-                    Math.sin(lambda) * radius + this.lightTarget.position.z
+                    Math.abs(Math.cos(lambda) * Math.sin(phi) * radius) +
+                        this.lightTarget.position.y +
+                        20,
+                    Math.sin(lambda) * radius + this.lightTarget.position.z,
                 );
             }
         }
@@ -325,7 +412,9 @@ export class LightmapManager {
      * Check if the lightmap is fully converged (reached max frames).
      */
     public get isConverged(): boolean {
-        return this.maxAccumulationFrames > 0 && this.accumulationFrames >= this.maxAccumulationFrames;
+        return (
+            this.maxAccumulationFrames > 0 && this.accumulationFrames >= this.maxAccumulationFrames
+        );
     }
 
     /**

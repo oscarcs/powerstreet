@@ -1,7 +1,5 @@
 import * as THREE from "three";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
-import { constructPolygonMeshObject } from "../geometry/constructPolygonMeshObject";
-import { PolygonCoords } from "../geometry/types";
 import { LocalStore } from "../data/createLocalStore";
 import { LightmapManager } from "./LightmapManager";
 
@@ -158,29 +156,61 @@ export class BuildingManager {
 
         if (nodes.length < 3) return;
 
-        // Negate Z to handle rotation later
-        const loop = nodes.map((n) => [n.x, -n.z] as [number, number]);
-        if (loop.length > 0) {
-            loop.push([...loop[0]]);
-        }
-        const polygon: PolygonCoords = [loop];
-
         const floorHeight = (building.floorHeight as number) || 3;
         const floorCount = (building.floorCount as number) || 1;
         const height = floorHeight * floorCount;
         const baseElevation = (building.baseElevation as number) || 0;
         const color = (building.color as string) || "#ffffff";
 
-        const mesh = constructPolygonMeshObject([polygon], {
-            thickness: height,
-            offset: baseElevation,
-            flat: true,
+        // Create a THREE.Shape from the node coordinates
+        // Negate Z to account for coordinate system transformation after rotation
+        const shape = new THREE.Shape();
+        shape.moveTo(nodes[0].x, -nodes[0].z);
+        for (let i = 1; i < nodes.length; i++) {
+            shape.lineTo(nodes[i].x, -nodes[i].z);
+        }
+        shape.closePath();
+
+        const geometry = new THREE.ExtrudeGeometry(shape, {
+            depth: height,
+            bevelEnabled: false,
         });
 
-        const material = new THREE.MeshPhongMaterial({ 
+        // Normalize UVs to 0-1 range for lightmap compatibility
+        const uvAttr = geometry.getAttribute("uv");
+        if (uvAttr) {
+            let minU = Infinity,
+                maxU = -Infinity;
+            let minV = Infinity,
+                maxV = -Infinity;
+
+            // Find UV bounds
+            for (let i = 0; i < uvAttr.count; i++) {
+                const u = uvAttr.getX(i);
+                const v = uvAttr.getY(i);
+                minU = Math.min(minU, u);
+                maxU = Math.max(maxU, u);
+                minV = Math.min(minV, v);
+                maxV = Math.max(maxV, v);
+            }
+
+            const rangeU = maxU - minU || 1;
+            const rangeV = maxV - minV || 1;
+
+            // Normalize to 0-1 range
+            for (let i = 0; i < uvAttr.count; i++) {
+                const u = uvAttr.getX(i);
+                const v = uvAttr.getY(i);
+                uvAttr.setXY(i, (u - minU) / rangeU, (v - minV) / rangeV);
+            }
+            uvAttr.needsUpdate = true;
+        }
+
+        const material = new THREE.MeshPhongMaterial({
             color: color,
         });
-        mesh.material = material;
+
+        const mesh = new THREE.Mesh(geometry, material);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.buildingId = buildingId;
@@ -198,12 +228,12 @@ export class BuildingManager {
             mesh.material = selectedMaterial;
         }
 
-        // Rotate to align with world coordinates (Y-up)
+        // ExtrudeGeometry extrudes along Z axis, we need Y-up
+        // Rotate so the extrusion goes up (Y axis)
         mesh.rotation.x = -Math.PI / 2;
 
-        // Fix position to match world coordinates
-        const { x, y, z } = mesh.position;
-        mesh.position.set(x, z, -y);
+        // Position at base elevation
+        mesh.position.y = baseElevation;
 
         this.buildingMeshes.set(buildingId, mesh);
         this.scene.add(mesh);

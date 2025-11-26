@@ -211,7 +211,7 @@ export class Engine {
         // Use subdivisions to capture shadow detail in the lightmap
         const groundGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
         // PlaneGeometry already has 'uv' attribute, no need to add
-        const groundMaterial = new THREE.MeshPhongMaterial({ 
+        const groundMaterial = new THREE.MeshPhongMaterial({
             color: 0xffffff,
             depthWrite: true,
         });
@@ -224,12 +224,12 @@ export class Engine {
         // Very low ambient light - lightmap provides the main illumination
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
-        
+
         // Main directional light for real-time lighting
         const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
         mainLight.position.set(50, 100, 50);
         this.scene.add(mainLight);
-        
+
         // DEBUG: Add a test cube to verify shadow casting works in lightmap
         const testCubeGeom = new THREE.BoxGeometry(10, 20, 10);
         const testCubeMat = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
@@ -271,37 +271,40 @@ export class Engine {
         }
 
         if (!this.initializationPromise) {
-            this.initializationPromise = this.renderer.initialize().then(() => {
-                // Initialize LightmapManager after renderer is ready
-                this.lightmapManager = new LightmapManager(
-                    this.renderer.getRenderer(),
-                    this.scene,
-                    {
-                        lightMapRes: 1024,
-                        shadowMapRes: 1024,  // Higher resolution shadow maps
-                        lightCount: 4,
-                        blendWindow: 200,
-                        ambientWeight: 0.5,
+            this.initializationPromise = this.renderer
+                .initialize()
+                .then(() => {
+                    // Initialize LightmapManager after renderer is ready
+                    this.lightmapManager = new LightmapManager(
+                        this.renderer.getRenderer(),
+                        this.scene,
+                        {
+                            lightMapRes: 1024,
+                            shadowMapRes: 1024, // Higher resolution shadow maps
+                            lightCount: 4,
+                            blendWindow: 200,
+                            ambientWeight: 0.5,
+                        },
+                    );
+
+                    // Register ground mesh for lightmapping (receives shadows but doesn't cast)
+                    if (this.groundMesh) {
+                        this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
                     }
-                );
 
-                // Register ground mesh for lightmapping (receives shadows but doesn't cast)
-                if (this.groundMesh) {
-                    this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
-                }
-                
-                // Register test cube
-                const testCube = (this as unknown as { testCube: THREE.Mesh }).testCube;
-                if (testCube) {
-                    this.lightmapManager.registerMesh("testCube", testCube, true, true);
-                }
+                    // Register test cube
+                    const testCube = (this as unknown as { testCube: THREE.Mesh }).testCube;
+                    if (testCube) {
+                        this.lightmapManager.registerMesh("testCube", testCube, true, true);
+                    }
 
-                // Pass lightmap manager to building manager
-                this.buildingManager.setLightmapManager(this.lightmapManager);
-            }).catch((error) => {
-                this.initializationPromise = null;
-                throw error;
-            });
+                    // Pass lightmap manager to building manager
+                    this.buildingManager.setLightmapManager(this.lightmapManager);
+                })
+                .catch((error) => {
+                    this.initializationPromise = null;
+                    throw error;
+                });
         }
 
         await this.initializationPromise;

@@ -18,7 +18,7 @@ import type {
 } from "./types";
 
 /** UV scale for lightmap projection (units per UV) */
-const LIGHTMAP_UV_SCALE = 10;
+const LIGHTMAP_UV_SCALE = 50;
 
 const _vec = new Vector3();
 const _dir1 = new Vector3();
@@ -123,43 +123,6 @@ function addFaceNormals(index: number, posArray: number[], normalArray: Float32A
     _vec.toArray(normalArray, index);
     _vec.toArray(normalArray, index + 3);
     _vec.toArray(normalArray, index + 6);
-}
-
-/**
- * Normalize a section of the UV array to fit within the specified bounds.
- * This prevents UV overlap between different face types.
- */
-function normalizeUVSection(
-    uvArray: Float32Array,
-    startIndex: number,
-    endIndex: number,
-    minU: number,
-    maxU: number,
-    minV: number,
-    maxV: number
-): void {
-    if (startIndex >= endIndex) return;
-    
-    // Find the current bounds of this section
-    let srcMinU = Infinity, srcMaxU = -Infinity;
-    let srcMinV = Infinity, srcMaxV = -Infinity;
-    for (let i = startIndex; i < endIndex; i += 2) {
-        srcMinU = Math.min(srcMinU, uvArray[i]);
-        srcMaxU = Math.max(srcMaxU, uvArray[i]);
-        srcMinV = Math.min(srcMinV, uvArray[i + 1]);
-        srcMaxV = Math.max(srcMaxV, uvArray[i + 1]);
-    }
-    
-    const srcRangeU = srcMaxU - srcMinU || 1;
-    const srcRangeV = srcMaxV - srcMinV || 1;
-    const dstRangeU = maxU - minU;
-    const dstRangeV = maxV - minV;
-    
-    // Remap UVs to target bounds
-    for (let i = startIndex; i < endIndex; i += 2) {
-        uvArray[i] = minU + ((uvArray[i] - srcMinU) / srcRangeU) * dstRangeU;
-        uvArray[i + 1] = minV + ((uvArray[i + 1] - srcMinV) / srcRangeV) * dstRangeV;
-    }
 }
 
 export function constructPolygonMeshObject(
@@ -289,7 +252,7 @@ export function constructPolygonMeshObject(
             // Track cumulative edge length for UV mapping
             let cumulativeLength = 0;
             let totalEdgeLength = 0;
-            
+
             // First pass: calculate total edge length
             for (let i = 0; i < edges.length; i++) {
                 const edge = edges[i];
@@ -299,26 +262,26 @@ export function constructPolygonMeshObject(
                 const dy = p1[1] - p0[1];
                 totalEdgeLength += Math.sqrt(dx * dx + dy * dy);
             }
-            
+
             // Second pass: generate side faces with proper UVs
             for (let i = 0; i < edges.length; i++) {
                 const edge = edges[i];
                 const i0 = edge[0];
                 const i1 = edge[1];
-                
+
                 const p0 = points[i0];
                 const p1 = points[i1];
                 const dx = p1[0] - p0[0];
                 const dy = p1[1] - p0[1];
                 const edgeLength = Math.sqrt(dx * dx + dy * dy);
-                
+
                 // Calculate UV coordinates for this quad
                 // U: along the edge (0 to edgeLength/totalEdgeLength)
                 // V: 0 at bottom, 1 at top
                 const u0 = cumulativeLength / totalEdgeLength;
                 const u1 = (cumulativeLength + edgeLength) / totalEdgeLength;
                 cumulativeLength += edgeLength;
-                
+
                 // Add position and UV for each vertex of the two triangles
                 // Triangle 1: bottom-left, top-left, bottom-right
                 addSidePoint(i0, botHeight, sideOffset + 0, uvSideOffset + 0, u0, 0);
@@ -326,7 +289,7 @@ export function constructPolygonMeshObject(
                 addSidePoint(i1, botHeight, sideOffset + 6, uvSideOffset + 4, u1, 0);
                 sideOffset += 9;
                 uvSideOffset += 6;
-                
+
                 // Triangle 2: bottom-right, top-left, top-right
                 addSidePoint(i1, botHeight, sideOffset + 0, uvSideOffset + 0, u1, 0);
                 addSidePoint(i0, topHeight, sideOffset + 3, uvSideOffset + 2, u0, 1);
@@ -335,31 +298,38 @@ export function constructPolygonMeshObject(
                 uvSideOffset += 6;
             }
         }
-        
+
         function addSidePoint(
             index: number,
             zOffset: number,
             posOffset: number,
             uvOffset: number,
-            u: number,
-            v: number
+            _u: number,
+            _v: number,
         ): void {
             const point = points[index];
             const z = flat ? 0 : (point[2] ?? 0);
-            posArray[posOffset + 0] = point[0];
-            posArray[posOffset + 1] = point[1];
-            posArray[posOffset + 2] = z * altitudeScale + zOffset;
-            
-            // Write UV directly - will be normalized later
-            uvArray[uvOffset + 0] = u;
-            uvArray[uvOffset + 1] = v;
+            const px = point[0];
+            const py = point[1];
+            const pz = z * altitudeScale + zOffset;
+
+            posArray[posOffset + 0] = px;
+            posArray[posOffset + 1] = py;
+            posArray[posOffset + 2] = pz;
+
+            // Use world-space box projection for UVs
+            // For side faces, use the larger of X or Y extent combined with Z
+            const sideU = (Math.abs(px) > Math.abs(py) ? px : py) / LIGHTMAP_UV_SCALE;
+            const sideV = pz / LIGHTMAP_UV_SCALE;
+            uvArray[uvOffset + 0] = sideU;
+            uvArray[uvOffset + 1] = sideV;
         }
 
         function addPointWithUV(
             index: number,
             zOffset: number,
             posOffset: number,
-            uvOffset: number
+            uvOffset: number,
         ): void {
             const point = points[index];
             const z = flat ? 0 : (point[2] ?? 0);
@@ -427,27 +397,8 @@ export function constructPolygonMeshObject(
     _vec.copy(mesh.position).multiplyScalar(-1);
     offsetPoints(posArray, _vec.x, _vec.y, _vec.z);
 
-    // Normalize UVs to 0-1 range separately for each face type to avoid overlaps
-    // Layout: top faces in top-left, bottom faces in top-right, sides in bottom half
-    if (thickness > 0) {
-        // Find bounds for each section
-        const topStart = 0;
-        const topEnd = capVertices * 2;
-        const bottomStart = capVertices * 2;
-        const bottomEnd = capVertices * 2 * 2;
-        const sideStart = capVertices * 2 * 2;
-        const sideEnd = totalVerts * 2;
-
-        // Normalize and pack top faces into [0, 0.5] x [0.5, 1.0]
-        normalizeUVSection(uvArray, topStart, topEnd, 0, 0.5, 0.5, 1.0);
-        // Normalize and pack bottom faces into [0.5, 1.0] x [0.5, 1.0]
-        normalizeUVSection(uvArray, bottomStart, bottomEnd, 0.5, 1.0, 0.5, 1.0);
-        // Normalize and pack side faces into [0, 1.0] x [0, 0.5]
-        normalizeUVSection(uvArray, sideStart, sideEnd, 0, 1.0, 0, 0.5);
-    } else {
-        // No thickness - just normalize all UVs to full 0-1 range
-        normalizeUVSection(uvArray, 0, uvArray.length, 0, 1, 0, 1);
-    }
+    // UVs use world-space box projection, no normalization needed
+    // The ProgressiveLightMap will repack them using potpack
 
     mesh.geometry.setAttribute(
         "position",

@@ -229,17 +229,6 @@ export class Engine {
         const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
         mainLight.position.set(50, 100, 50);
         this.scene.add(mainLight);
-
-        // DEBUG: Add a test cube to verify shadow casting works in lightmap
-        const testCubeGeom = new THREE.BoxGeometry(10, 20, 10);
-        const testCubeMat = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-        const testCube = new THREE.Mesh(testCubeGeom, testCubeMat);
-        testCube.position.set(20, 10, 20);
-        testCube.castShadow = true;
-        testCube.receiveShadow = true;
-        this.scene.add(testCube);
-        // We'll register this after lightmapManager is created
-        (this as unknown as { testCube: THREE.Mesh }).testCube = testCube;
     }
 
     private setupEventListeners(): void {
@@ -290,12 +279,6 @@ export class Engine {
                     // Register ground mesh for lightmapping (receives shadows but doesn't cast)
                     if (this.groundMesh) {
                         this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
-                    }
-
-                    // Register test cube
-                    const testCube = (this as unknown as { testCube: THREE.Mesh }).testCube;
-                    if (testCube) {
-                        this.lightmapManager.registerMesh("testCube", testCube, true, true);
                     }
 
                     // Pass lightmap manager to building manager

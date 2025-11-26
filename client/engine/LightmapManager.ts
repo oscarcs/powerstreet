@@ -1,5 +1,5 @@
 import * as THREE from "three/webgpu";
-import { ProgressiveLightMap } from "three/addons/misc/ProgressiveLightMapGPU.js";
+import { ProgressiveLightMap } from "./ProgressiveLightMap";
 
 export interface LightmapSettings {
     /** Resolution of the lightmap texture (default: 1024) */
@@ -8,7 +8,7 @@ export interface LightmapSettings {
     shadowMapRes?: number;
     /** Number of directional lights for faster convergence (default: 4) */
     lightCount?: number;
-    /** Blend window for accumulation (default: 200) */
+    /** Exponential moving average window size for accumulation. Higher values = smoother but slower convergence, lower values = faster but noisier (default: 100) */
     blendWindow?: number;
     /** Whether to blur edges (default: true) */
     blurEdges?: boolean;
@@ -26,8 +26,8 @@ const DEFAULT_SETTINGS: Required<LightmapSettings> = {
     lightCount: 4,
     blendWindow: 100,
     blurEdges: true,
-    lightRadius: 15,
-    ambientWeight: 0.25,
+    lightRadius: 10,
+    ambientWeight: 0.2,
     transitionFrames: 120,
 };
 
@@ -63,7 +63,7 @@ export class LightmapManager {
     private accumulationFrames: number = 0;
 
     /** Maximum frames to accumulate before auto-pausing (0 = never pause) */
-    public maxAccumulationFrames: number = 0;
+    public maxAccumulationFrames: number = 500;
 
     /** Stored lightmap intensities for crossfade transition */
     private storedLightmapIntensities: Map<string, number> = new Map();
@@ -96,11 +96,11 @@ export class LightmapManager {
         const { lightCount, shadowMapRes } = this.settings;
 
         for (let i = 0; i < lightCount; i++) {
-            const light = new THREE.DirectionalLight(0xffffff, Math.PI / lightCount);
+            const light = new THREE.DirectionalLight(0xffffff, 10 / lightCount);
             light.name = `LightmapBakeLight_${i}`;
             light.position.set(200, 200, 200);
             light.castShadow = true;
-            // Larger frustum to cover more of the scene
+
             light.shadow.camera.near = 10;
             light.shadow.camera.far = 1000;
             light.shadow.camera.right = 300;
@@ -109,14 +109,12 @@ export class LightmapManager {
             light.shadow.camera.bottom = -300;
             light.shadow.mapSize.width = shadowMapRes;
             light.shadow.mapSize.height = shadowMapRes;
-            // Increased bias to reduce shadow acne on angled surfaces
+
             light.shadow.bias = -0.0001;
             light.shadow.normalBias = 0.02;
             light.target = this.lightTarget;
 
             this.bakingLights.push(light);
-            // NOTE: Don't add to main scene - lights are only for lightmap baking
-            // They get added to the internal scene via addObjectsToLightMap()
         }
     }
 
@@ -204,74 +202,10 @@ export class LightmapManager {
         // Include baking lights in the lightmap objects
         const lightmapObjects: THREE.Object3D[] = [...meshes, ...this.bakingLights];
 
-        console.log(
-            `[LightmapManager] Rebuilding with ${meshes.length} meshes and ${this.bakingLights.length} lights`,
-        );
-        meshes.forEach((mesh, i) => {
-            const hasUV = mesh.geometry.hasAttribute("uv");
-            const hasNormal = mesh.geometry.hasAttribute("normal");
-            console.log(
-                `  Mesh ${i}: hasUV=${hasUV}, hasNormal=${hasNormal}, castShadow=${mesh.castShadow}, receiveShadow=${mesh.receiveShadow}`,
-            );
-
-            // Debug: Check UV ranges
-            if (hasUV) {
-                const uvAttr = mesh.geometry.getAttribute("uv");
-                let minU = Infinity,
-                    maxU = -Infinity,
-                    minV = Infinity,
-                    maxV = -Infinity;
-                for (let j = 0; j < uvAttr.count; j++) {
-                    const u = uvAttr.getX(j);
-                    const v = uvAttr.getY(j);
-                    minU = Math.min(minU, u);
-                    maxU = Math.max(maxU, u);
-                    minV = Math.min(minV, v);
-                    maxV = Math.max(maxV, v);
-                }
-                console.log(
-                    `    UV range: [${minU.toFixed(2)}, ${maxU.toFixed(2)}] x [${minV.toFixed(2)}, ${maxV.toFixed(2)}]`,
-                );
-            }
-        });
-
-        this.bakingLights.forEach((light, i) => {
-            console.log(
-                `  Light ${i}: castShadow=${light.castShadow}, intensity=${light.intensity}`,
-            );
-        });
-
         this.progressiveLightMap.addObjectsToLightMap(lightmapObjects);
 
-        // Set initial lightmap intensity based on transition state
-        meshes.forEach((mesh, _index) => {
-            const mat = mesh.material as THREE.MeshStandardMaterial;
-            const geom = mesh.geometry;
-            const uv1Attr = geom.getAttribute("uv1");
-
-            // Debug: Check uv1 ranges (the packed lightmap UVs)
-            if (uv1Attr) {
-                let minU = Infinity,
-                    maxU = -Infinity,
-                    minV = Infinity,
-                    maxV = -Infinity;
-                for (let j = 0; j < uv1Attr.count; j++) {
-                    const u = uv1Attr.getX(j);
-                    const v = uv1Attr.getY(j);
-                    minU = Math.min(minU, u);
-                    maxU = Math.max(maxU, u);
-                    minV = Math.min(minV, v);
-                    maxV = Math.max(maxV, v);
-                }
-            }
-
-            // Start at moderate intensity during transition to minimize flash
-            // The intensity will be ramped up slightly as the new lightmap converges
-            mat.lightMapIntensity = this.isTransitioning ? 1.5 : 2.0;
-        });
-
         // Show debug lightmap to see what's being baked
-        this.progressiveLightMap.showDebugLightmap(true);
+        this.progressiveLightMap.showDebugLightmap(true, new THREE.Vector3(0, 200, 0));
 
         this.accumulationFrames = 0;
         this._dirty = false;
@@ -319,21 +253,10 @@ export class LightmapManager {
                 this.accumulationFrames / this.settings.transitionFrames,
             );
 
-            // Use a smooth ease-out curve - starts fast, slows down at end
-            // This minimizes the initial flash by quickly reaching a reasonable intensity
-            const easedProgress = this.easeOutQuad(this.transitionProgress);
+            const easedProgress = this.easeInExpo(this.transitionProgress);
+            const targetIntensity = easedProgress;
 
-            // Calculate target intensity - ramp up from 1.5 to 2.0
-            // Starting higher reduces the flash, final value provides good contrast
-            const targetIntensity = 1.5 + easedProgress * 0.5;
-
-            // Apply to all registered meshes
-            this.registeredMeshes.forEach((mesh) => {
-                const mat = mesh.material as THREE.MeshStandardMaterial;
-                if (mat.lightMap) {
-                    mat.lightMapIntensity = targetIntensity;
-                }
-            });
+            // TODO: Figure out how to transition between old and new lightmaps properly
 
             // End transition when complete
             if (this.transitionProgress >= 1) {
@@ -343,12 +266,8 @@ export class LightmapManager {
         }
     }
 
-    /**
-     * Quadratic ease-out function for subtle transitions.
-     * Starts fast and slows down - good for avoiding initial flash.
-     */
-    private easeOutQuad(t: number): number {
-        return 1 - (1 - t) * (1 - t);
+    private easeInExpo(t: number): number {
+        return t === 0 ? 0 : Math.pow(2, 10 * (t - 1));
     }
 
     private jitterLights(): void {
@@ -406,15 +325,6 @@ export class LightmapManager {
 
     public get enabled(): boolean {
         return this._enabled;
-    }
-
-    /**
-     * Check if the lightmap is fully converged (reached max frames).
-     */
-    public get isConverged(): boolean {
-        return (
-            this.maxAccumulationFrames > 0 && this.accumulationFrames >= this.maxAccumulationFrames
-        );
     }
 
     /**

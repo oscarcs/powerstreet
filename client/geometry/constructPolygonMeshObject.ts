@@ -17,6 +17,9 @@ import type {
     TriangulationResult,
 } from "./types";
 
+/** UV scale for lightmap projection (units per UV) */
+const LIGHTMAP_UV_SCALE = 10;
+
 const _vec = new Vector3();
 const _dir1 = new Vector3();
 const _dir2 = new Vector3();
@@ -122,6 +125,43 @@ function addFaceNormals(index: number, posArray: number[], normalArray: Float32A
     _vec.toArray(normalArray, index + 6);
 }
 
+/**
+ * Normalize a section of the UV array to fit within the specified bounds.
+ * This prevents UV overlap between different face types.
+ */
+function normalizeUVSection(
+    uvArray: Float32Array,
+    startIndex: number,
+    endIndex: number,
+    minU: number,
+    maxU: number,
+    minV: number,
+    maxV: number
+): void {
+    if (startIndex >= endIndex) return;
+    
+    // Find the current bounds of this section
+    let srcMinU = Infinity, srcMaxU = -Infinity;
+    let srcMinV = Infinity, srcMaxV = -Infinity;
+    for (let i = startIndex; i < endIndex; i += 2) {
+        srcMinU = Math.min(srcMinU, uvArray[i]);
+        srcMaxU = Math.max(srcMaxU, uvArray[i]);
+        srcMinV = Math.min(srcMinV, uvArray[i + 1]);
+        srcMaxV = Math.max(srcMaxV, uvArray[i + 1]);
+    }
+    
+    const srcRangeU = srcMaxU - srcMinU || 1;
+    const srcRangeV = srcMaxV - srcMinV || 1;
+    const dstRangeU = maxU - minU;
+    const dstRangeV = maxV - minV;
+    
+    // Remap UVs to target bounds
+    for (let i = startIndex; i < endIndex; i += 2) {
+        uvArray[i] = minU + ((uvArray[i] - srcMinU) / srcRangeU) * dstRangeU;
+        uvArray[i + 1] = minV + ((uvArray[i + 1] - srcMinV) / srcRangeV) * dstRangeV;
+    }
+}
+
 export function constructPolygonMeshObject(
     polygons: PolygonCoords[],
     options: PolygonMeshOptions = {},
@@ -218,53 +258,122 @@ export function constructPolygonMeshObject(
     const totalVerts = thickness === 0 ? capVertices : 2 * capVertices + edgeVertices;
     const posArray: number[] = new Array(totalVerts * 3);
     const normalArray = new Float32Array(totalVerts * 3);
+    const uvArray = new Float32Array(totalVerts * 2); // For lightmap UVs
     let topOffset = 0;
     let bottomOffset = capVertices * 3;
     let sideOffset = capVertices * 2 * 3;
+    let uvTopOffset = 0;
+    let uvBottomOffset = capVertices * 2;
+    let uvSideOffset = capVertices * 2 * 2;
     triangulations.forEach(({ indices, points, edges }) => {
         const botHeight = offset;
         const topHeight = offset + thickness;
 
         for (let i = 0; i < indices.length; i += 3) {
-            addPoint(indices[i + 2], topHeight, topOffset + 0);
-            addPoint(indices[i + 1], topHeight, topOffset + 3);
-            addPoint(indices[i + 0], topHeight, topOffset + 6);
+            addPointWithUV(indices[i + 2], topHeight, topOffset + 0, uvTopOffset + 0);
+            addPointWithUV(indices[i + 1], topHeight, topOffset + 3, uvTopOffset + 2);
+            addPointWithUV(indices[i + 0], topHeight, topOffset + 6, uvTopOffset + 4);
             topOffset += 9;
+            uvTopOffset += 6;
 
             if (thickness > 0) {
-                addPoint(indices[i + 0], botHeight, bottomOffset + 0);
-                addPoint(indices[i + 1], botHeight, bottomOffset + 3);
-                addPoint(indices[i + 2], botHeight, bottomOffset + 6);
+                addPointWithUV(indices[i + 0], botHeight, bottomOffset + 0, uvBottomOffset + 0);
+                addPointWithUV(indices[i + 1], botHeight, bottomOffset + 3, uvBottomOffset + 2);
+                addPointWithUV(indices[i + 2], botHeight, bottomOffset + 6, uvBottomOffset + 4);
                 bottomOffset += 9;
+                uvBottomOffset += 6;
             }
         }
 
         if (thickness > 0) {
+            // Track cumulative edge length for UV mapping
+            let cumulativeLength = 0;
+            let totalEdgeLength = 0;
+            
+            // First pass: calculate total edge length
+            for (let i = 0; i < edges.length; i++) {
+                const edge = edges[i];
+                const p0 = points[edge[0]];
+                const p1 = points[edge[1]];
+                const dx = p1[0] - p0[0];
+                const dy = p1[1] - p0[1];
+                totalEdgeLength += Math.sqrt(dx * dx + dy * dy);
+            }
+            
+            // Second pass: generate side faces with proper UVs
             for (let i = 0; i < edges.length; i++) {
                 const edge = edges[i];
                 const i0 = edge[0];
                 const i1 = edge[1];
-                const i2 = i0;
-                const i3 = i1;
-
-                addPoint(i0, botHeight, sideOffset + 0);
-                addPoint(i2, topHeight, sideOffset + 3);
-                addPoint(i1, botHeight, sideOffset + 6);
+                
+                const p0 = points[i0];
+                const p1 = points[i1];
+                const dx = p1[0] - p0[0];
+                const dy = p1[1] - p0[1];
+                const edgeLength = Math.sqrt(dx * dx + dy * dy);
+                
+                // Calculate UV coordinates for this quad
+                // U: along the edge (0 to edgeLength/totalEdgeLength)
+                // V: 0 at bottom, 1 at top
+                const u0 = cumulativeLength / totalEdgeLength;
+                const u1 = (cumulativeLength + edgeLength) / totalEdgeLength;
+                cumulativeLength += edgeLength;
+                
+                // Add position and UV for each vertex of the two triangles
+                // Triangle 1: bottom-left, top-left, bottom-right
+                addSidePoint(i0, botHeight, sideOffset + 0, uvSideOffset + 0, u0, 0);
+                addSidePoint(i0, topHeight, sideOffset + 3, uvSideOffset + 2, u0, 1);
+                addSidePoint(i1, botHeight, sideOffset + 6, uvSideOffset + 4, u1, 0);
                 sideOffset += 9;
-
-                addPoint(i1, botHeight, sideOffset + 0);
-                addPoint(i2, topHeight, sideOffset + 3);
-                addPoint(i3, topHeight, sideOffset + 6);
+                uvSideOffset += 6;
+                
+                // Triangle 2: bottom-right, top-left, top-right
+                addSidePoint(i1, botHeight, sideOffset + 0, uvSideOffset + 0, u1, 0);
+                addSidePoint(i0, topHeight, sideOffset + 3, uvSideOffset + 2, u0, 1);
+                addSidePoint(i1, topHeight, sideOffset + 6, uvSideOffset + 4, u1, 1);
                 sideOffset += 9;
+                uvSideOffset += 6;
             }
         }
-
-        function addPoint(index: number, zOffset: number, indexOffset: number): void {
+        
+        function addSidePoint(
+            index: number,
+            zOffset: number,
+            posOffset: number,
+            uvOffset: number,
+            u: number,
+            v: number
+        ): void {
             const point = points[index];
             const z = flat ? 0 : (point[2] ?? 0);
-            posArray[indexOffset + 0] = point[0];
-            posArray[indexOffset + 1] = point[1];
-            posArray[indexOffset + 2] = z * altitudeScale + zOffset;
+            posArray[posOffset + 0] = point[0];
+            posArray[posOffset + 1] = point[1];
+            posArray[posOffset + 2] = z * altitudeScale + zOffset;
+            
+            // Write UV directly - will be normalized later
+            uvArray[uvOffset + 0] = u;
+            uvArray[uvOffset + 1] = v;
+        }
+
+        function addPointWithUV(
+            index: number,
+            zOffset: number,
+            posOffset: number,
+            uvOffset: number
+        ): void {
+            const point = points[index];
+            const z = flat ? 0 : (point[2] ?? 0);
+            const px = point[0];
+            const py = point[1];
+            const pz = z * altitudeScale + zOffset;
+
+            posArray[posOffset + 0] = px;
+            posArray[posOffset + 1] = py;
+            posArray[posOffset + 2] = pz;
+
+            // Generate UV using XY projection for top/bottom caps
+            uvArray[uvOffset + 0] = px / LIGHTMAP_UV_SCALE;
+            uvArray[uvOffset + 1] = py / LIGHTMAP_UV_SCALE;
         }
     });
 
@@ -318,11 +427,34 @@ export function constructPolygonMeshObject(
     _vec.copy(mesh.position).multiplyScalar(-1);
     offsetPoints(posArray, _vec.x, _vec.y, _vec.z);
 
+    // Normalize UVs to 0-1 range separately for each face type to avoid overlaps
+    // Layout: top faces in top-left, bottom faces in top-right, sides in bottom half
+    if (thickness > 0) {
+        // Find bounds for each section
+        const topStart = 0;
+        const topEnd = capVertices * 2;
+        const bottomStart = capVertices * 2;
+        const bottomEnd = capVertices * 2 * 2;
+        const sideStart = capVertices * 2 * 2;
+        const sideEnd = totalVerts * 2;
+
+        // Normalize and pack top faces into [0, 0.5] x [0.5, 1.0]
+        normalizeUVSection(uvArray, topStart, topEnd, 0, 0.5, 0.5, 1.0);
+        // Normalize and pack bottom faces into [0.5, 1.0] x [0.5, 1.0]
+        normalizeUVSection(uvArray, bottomStart, bottomEnd, 0.5, 1.0, 0.5, 1.0);
+        // Normalize and pack side faces into [0, 1.0] x [0, 0.5]
+        normalizeUVSection(uvArray, sideStart, sideEnd, 0, 1.0, 0, 0.5);
+    } else {
+        // No thickness - just normalize all UVs to full 0-1 range
+        normalizeUVSection(uvArray, 0, uvArray.length, 0, 1, 0, 1);
+    }
+
     mesh.geometry.setAttribute(
         "position",
         new BufferAttribute(new Float32Array(posArray), 3, false),
     );
     mesh.geometry.setAttribute("normal", new BufferAttribute(normalArray, 3, false));
+    mesh.geometry.setAttribute("uv", new BufferAttribute(uvArray, 2, false));
 
     if (groups) {
         let offsetIndex = 0;

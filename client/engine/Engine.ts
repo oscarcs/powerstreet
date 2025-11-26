@@ -5,6 +5,7 @@ import { InputManager } from "../input/InputManager";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { BuildingManager } from "./BuildingManager";
 import { EditGizmoManager } from "./EditGizmoManager";
+import { LightmapManager } from "./LightmapManager";
 import { LocalStore } from "../data/createLocalStore";
 
 export class Engine {
@@ -27,6 +28,8 @@ export class Engine {
     private boundOnMouseMove: ((event: MouseEvent) => void) | null = null;
     private boundOnMouseUp: ((event: MouseEvent) => void) | null = null;
     private groundPlane: THREE.Plane;
+    private lightmapManager: LightmapManager | null = null;
+    private groundMesh: THREE.Mesh | null = null;
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
         this.scene = new THREE.Scene();
@@ -204,19 +207,39 @@ export class Engine {
     }
 
     private setupScene(): void {
-        const groundGeometry = new THREE.PlaneGeometry(100, 100);
-        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0xf0f0f0 });
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.y = 0;
-        this.scene.add(ground);
+        // Large ground plane to receive shadows from buildings
+        // Use subdivisions to capture shadow detail in the lightmap
+        const groundGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
+        // PlaneGeometry already has 'uv' attribute, no need to add
+        const groundMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff,
+            depthWrite: true,
+        });
+        this.groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+        this.groundMesh.rotation.x = -Math.PI / 2;
+        this.groundMesh.position.y = 0;
+        this.groundMesh.receiveShadow = true;
+        this.scene.add(this.groundMesh);
 
-        const ambientLight = new THREE.AmbientLight(0xcccccc, 0.8);
+        // Very low ambient light - lightmap provides the main illumination
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
-
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(7, 20, 10);
-        this.scene.add(directionalLight);
+        
+        // Main directional light for real-time lighting
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        mainLight.position.set(50, 100, 50);
+        this.scene.add(mainLight);
+        
+        // DEBUG: Add a test cube to verify shadow casting works in lightmap
+        const testCubeGeom = new THREE.BoxGeometry(10, 20, 10);
+        const testCubeMat = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        const testCube = new THREE.Mesh(testCubeGeom, testCubeMat);
+        testCube.position.set(20, 10, 20);
+        testCube.castShadow = true;
+        testCube.receiveShadow = true;
+        this.scene.add(testCube);
+        // We'll register this after lightmapManager is created
+        (this as unknown as { testCube: THREE.Mesh }).testCube = testCube;
     }
 
     private setupEventListeners(): void {
@@ -234,6 +257,11 @@ export class Engine {
         this.inputManager.update();
         this.camera.update();
 
+        // Update lightmap accumulation
+        if (this.lightmapManager) {
+            this.lightmapManager.update(this.camera.getCamera());
+        }
+
         this.renderer.render(this.scene, this.camera.getCamera());
     };
 
@@ -243,7 +271,34 @@ export class Engine {
         }
 
         if (!this.initializationPromise) {
-            this.initializationPromise = this.renderer.initialize().catch((error) => {
+            this.initializationPromise = this.renderer.initialize().then(() => {
+                // Initialize LightmapManager after renderer is ready
+                this.lightmapManager = new LightmapManager(
+                    this.renderer.getRenderer(),
+                    this.scene,
+                    {
+                        lightMapRes: 1024,
+                        shadowMapRes: 1024,  // Higher resolution shadow maps
+                        lightCount: 4,
+                        blendWindow: 200,
+                        ambientWeight: 0.5,
+                    }
+                );
+
+                // Register ground mesh for lightmapping (receives shadows but doesn't cast)
+                if (this.groundMesh) {
+                    this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
+                }
+                
+                // Register test cube
+                const testCube = (this as unknown as { testCube: THREE.Mesh }).testCube;
+                if (testCube) {
+                    this.lightmapManager.registerMesh("testCube", testCube, true, true);
+                }
+
+                // Pass lightmap manager to building manager
+                this.buildingManager.setLightmapManager(this.lightmapManager);
+            }).catch((error) => {
                 this.initializationPromise = null;
                 throw error;
             });
@@ -330,6 +385,9 @@ export class Engine {
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
+        if (this.lightmapManager) {
+            this.lightmapManager.dispose();
+        }
         this.renderer.dispose();
     }
 }

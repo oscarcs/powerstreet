@@ -3,6 +3,7 @@ import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { constructPolygonMeshObject } from "../geometry/constructPolygonMeshObject";
 import { PolygonCoords } from "../geometry/types";
 import { LocalStore } from "../data/createLocalStore";
+import { LightmapManager } from "./LightmapManager";
 
 export class BuildingManager {
     private scene: THREE.Scene;
@@ -13,6 +14,7 @@ export class BuildingManager {
     private selectedBuildingId: string | null = null;
     private selectionListenerId: string | null = null;
     private nodeListenerId: string | null = null;
+    private lightmapManager: LightmapManager | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
@@ -35,6 +37,15 @@ export class BuildingManager {
         }
     }
 
+    public setLightmapManager(lightmapManager: LightmapManager): void {
+        this.lightmapManager = lightmapManager;
+
+        // Register existing building meshes
+        this.buildingMeshes.forEach((mesh, buildingId) => {
+            this.lightmapManager?.registerMesh(`building_${buildingId}`, mesh);
+        });
+    }
+
     private updateSelection(newBuildingId: string | undefined): void {
         // Restore previous selection to solid
         if (this.selectedBuildingId) {
@@ -45,6 +56,8 @@ export class BuildingManager {
                     prevMesh.material.dispose();
                 }
                 prevMesh.material = prevOriginal;
+                // Re-register with lightmap when restoring solid material
+                this.lightmapManager?.registerMesh(`building_${this.selectedBuildingId}`, prevMesh);
             }
         }
 
@@ -54,16 +67,19 @@ export class BuildingManager {
         if (this.selectedBuildingId) {
             const mesh = this.buildingMeshes.get(this.selectedBuildingId);
             if (mesh && !Array.isArray(mesh.material)) {
-                const originalMaterial = mesh.material as THREE.MeshLambertMaterial;
+                const originalMaterial = mesh.material as THREE.MeshPhongMaterial;
                 // Store original if not already stored
                 if (!this.originalMaterials.has(this.selectedBuildingId)) {
                     this.originalMaterials.set(this.selectedBuildingId, originalMaterial);
                 }
+                // Unregister from lightmap - transparent objects shouldn't be in lightmap
+                this.lightmapManager?.unregisterMesh(`building_${this.selectedBuildingId}`);
                 // Create semi-transparent copy
-                const selectedMaterial = new THREE.MeshLambertMaterial({
+                const selectedMaterial = new THREE.MeshPhongMaterial({
                     color: originalMaterial.color,
                     transparent: true,
                     opacity: 0.5,
+                    depthWrite: false, // Helps with transparency artifacts
                 });
                 mesh.material = selectedMaterial;
             }
@@ -113,6 +129,9 @@ export class BuildingManager {
         if (this.buildingMeshes.has(buildingId)) {
             const mesh = this.buildingMeshes.get(buildingId);
             if (mesh) {
+                // Unregister from lightmap
+                this.lightmapManager?.unregisterMesh(`building_${buildingId}`);
+
                 this.scene.remove(mesh);
                 mesh.geometry.dispose();
                 if (Array.isArray(mesh.material)) {
@@ -158,7 +177,9 @@ export class BuildingManager {
             flat: true,
         });
 
-        const material = new THREE.MeshLambertMaterial({ color: color });
+        const material = new THREE.MeshPhongMaterial({ 
+            color: color,
+        });
         mesh.material = material;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -169,7 +190,7 @@ export class BuildingManager {
 
         // If this building is currently selected, apply the semi-transparent material
         if (this.selectedBuildingId === buildingId) {
-            const selectedMaterial = new THREE.MeshLambertMaterial({
+            const selectedMaterial = new THREE.MeshPhongMaterial({
                 color: material.color,
                 transparent: true,
                 opacity: 0.5,
@@ -186,6 +207,9 @@ export class BuildingManager {
 
         this.buildingMeshes.set(buildingId, mesh);
         this.scene.add(mesh);
+
+        // Register with lightmap manager
+        this.lightmapManager?.registerMesh(`building_${buildingId}`, mesh);
     }
 
     public dispose() {
@@ -195,7 +219,10 @@ export class BuildingManager {
         if (this.nodeListenerId) {
             this.store.delListener(this.nodeListenerId);
         }
-        this.buildingMeshes.forEach((mesh) => {
+        this.buildingMeshes.forEach((mesh, buildingId) => {
+            // Unregister from lightmap
+            this.lightmapManager?.unregisterMesh(`building_${buildingId}`);
+
             this.scene.remove(mesh);
             mesh.geometry.dispose();
             if (Array.isArray(mesh.material)) {

@@ -5,7 +5,9 @@ const TABLES_SCHEMA = {} as const;
 const VALUES_SCHEMA = {
     currentTool: { type: "string" },
     selectedBuildingId: { type: "string" },
+    selectedSectionId: { type: "string" },
     editingBuildingId: { type: "string" },
+    editingSectionId: { type: "string" },
     draggingNodeId: { type: "string" },
 } as const;
 

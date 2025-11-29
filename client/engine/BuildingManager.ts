@@ -3,15 +3,31 @@ import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { LocalStore } from "../data/createLocalStore";
 import { LightmapManager } from "./LightmapManager";
 
+interface SectionData {
+    sectionId: string;
+    sectionIdx: number;
+    baseElevation: number;
+    height: number;
+    color: string;
+}
+
+interface NodeData {
+    x: number;
+    z: number;
+    idx: number;
+}
+
 export class BuildingManager {
     private scene: THREE.Scene;
     private store: WorldsyncStore;
     private localStore: LocalStore | null = null;
-    private buildingMeshes: Map<string, THREE.Mesh> = new Map();
+    private buildingGroups: Map<string, THREE.Group> = new Map();
+    private sectionMeshes: Map<string, THREE.Mesh> = new Map(); // sectionId -> mesh
     private originalMaterials: Map<string, THREE.Material> = new Map();
     private selectedBuildingId: string | null = null;
     private selectionListenerId: string | null = null;
     private nodeListenerId: string | null = null;
+    private sectionListenerId: string | null = null;
     private lightmapManager: LightmapManager | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
@@ -38,24 +54,30 @@ export class BuildingManager {
     public setLightmapManager(lightmapManager: LightmapManager): void {
         this.lightmapManager = lightmapManager;
 
-        // Register existing building meshes
-        this.buildingMeshes.forEach((mesh, buildingId) => {
-            this.lightmapManager?.registerMesh(`building_${buildingId}`, mesh);
+        // Register existing section meshes
+        this.sectionMeshes.forEach((mesh, sectionId) => {
+            this.lightmapManager?.registerMesh(`section_${sectionId}`, mesh);
         });
     }
 
     private updateSelection(newBuildingId: string | undefined): void {
         // Restore previous selection to solid
         if (this.selectedBuildingId) {
-            const prevMesh = this.buildingMeshes.get(this.selectedBuildingId);
-            const prevOriginal = this.originalMaterials.get(this.selectedBuildingId);
-            if (prevMesh && prevOriginal) {
-                if (!Array.isArray(prevMesh.material)) {
-                    prevMesh.material.dispose();
-                }
-                prevMesh.material = prevOriginal;
-                // Re-register with lightmap when restoring solid material
-                this.lightmapManager?.registerMesh(`building_${this.selectedBuildingId}`, prevMesh);
+            const group = this.buildingGroups.get(this.selectedBuildingId);
+            if (group) {
+                group.traverse((child) => {
+                    if (child instanceof THREE.Mesh) {
+                        const sectionId = child.userData.sectionId as string;
+                        const prevOriginal = this.originalMaterials.get(sectionId);
+                        if (prevOriginal) {
+                            if (!Array.isArray(child.material)) {
+                                child.material.dispose();
+                            }
+                            child.material = prevOriginal;
+                            this.lightmapManager?.registerMesh(`section_${sectionId}`, child);
+                        }
+                    }
+                });
             }
         }
 
@@ -63,37 +85,81 @@ export class BuildingManager {
 
         // Apply semi-transparent material to new selection
         if (this.selectedBuildingId) {
-            const mesh = this.buildingMeshes.get(this.selectedBuildingId);
-            if (mesh && !Array.isArray(mesh.material)) {
-                const originalMaterial = mesh.material as THREE.MeshPhongMaterial;
-                // Store original if not already stored
-                if (!this.originalMaterials.has(this.selectedBuildingId)) {
-                    this.originalMaterials.set(this.selectedBuildingId, originalMaterial);
-                }
-                // Unregister from lightmap - transparent objects shouldn't be in lightmap
-                this.lightmapManager?.unregisterMesh(`building_${this.selectedBuildingId}`);
-                // Create semi-transparent copy
-                const selectedMaterial = new THREE.MeshPhongMaterial({
-                    color: originalMaterial.color,
-                    transparent: true,
-                    opacity: 0.5,
-                    depthWrite: false, // Helps with transparency artifacts
+            const group = this.buildingGroups.get(this.selectedBuildingId);
+            if (group) {
+                group.traverse((child) => {
+                    if (child instanceof THREE.Mesh && !Array.isArray(child.material)) {
+                        const originalMaterial = child.material as THREE.MeshPhongMaterial;
+                        const sectionId = child.userData.sectionId as string;
+                        if (!this.originalMaterials.has(sectionId)) {
+                            this.originalMaterials.set(sectionId, originalMaterial);
+                        }
+                        this.lightmapManager?.unregisterMesh(`section_${sectionId}`);
+                        const selectedMaterial = new THREE.MeshPhongMaterial({
+                            color: originalMaterial.color,
+                            transparent: true,
+                            opacity: 0.5,
+                            depthWrite: false,
+                        });
+                        child.material = selectedMaterial;
+                    }
                 });
-                mesh.material = selectedMaterial;
             }
         }
     }
 
     public getBuildingMeshes(): THREE.Mesh[] {
-        return Array.from(this.buildingMeshes.values());
+        return Array.from(this.sectionMeshes.values());
     }
 
-    public getBuildingMesh(buildingId: string): THREE.Mesh | undefined {
-        return this.buildingMeshes.get(buildingId);
+    public getBuildingMesh(buildingId: string): THREE.Group | undefined {
+        return this.buildingGroups.get(buildingId);
+    }
+
+    public getSectionMesh(sectionId: string): THREE.Mesh | undefined {
+        return this.sectionMeshes.get(sectionId);
     }
 
     public getBuildingIdFromMesh(mesh: THREE.Object3D): string | null {
         return (mesh.userData.buildingId as string) ?? null;
+    }
+
+    public getSectionIdFromMesh(mesh: THREE.Object3D): string | null {
+        return (mesh.userData.sectionId as string) ?? null;
+    }
+
+    private getSectionsForBuilding(buildingId: string): SectionData[] {
+        const sections: SectionData[] = [];
+        this.store.getRowIds("sections").forEach((sectionId) => {
+            const row = this.store.getRow("sections", sectionId);
+            if (row.bldgId === buildingId) {
+                sections.push({
+                    sectionId,
+                    sectionIdx: row.sectionIdx as number,
+                    baseElevation: row.baseElevation as number,
+                    height: row.height as number,
+                    color: row.color as string,
+                });
+            }
+        });
+        sections.sort((a, b) => a.sectionIdx - b.sectionIdx);
+        return sections;
+    }
+
+    private getNodesForSection(sectionId: string): NodeData[] {
+        const nodes: NodeData[] = [];
+        this.store.getRowIds("nodes").forEach((rowId) => {
+            const row = this.store.getRow("nodes", rowId);
+            if (row.sectionId === sectionId) {
+                nodes.push({
+                    x: row.x as number,
+                    z: row.z as number,
+                    idx: row.idx as number,
+                });
+            }
+        });
+        nodes.sort((a, b) => a.idx - b.idx);
+        return nodes;
     }
 
     private initialize() {
@@ -107,7 +173,21 @@ export class BuildingManager {
             }
         });
 
-        // Listen for node coordinate changes to rebuild affected buildings
+        // Listen for section changes to rebuild affected buildings
+        this.sectionListenerId = this.store.addRowListener(
+            "sections",
+            null,
+            (_store, _tableId, rowId) => {
+                if (rowId) {
+                    const row = this.store.getRow("sections", rowId);
+                    if (row && row.bldgId) {
+                        this.createBuilding(row.bldgId as string);
+                    }
+                }
+            },
+        );
+
+        // Listen for node coordinate changes to rebuild affected sections/buildings
         this.nodeListenerId = this.store.addCellListener(
             "nodes",
             null,
@@ -115,8 +195,11 @@ export class BuildingManager {
             (_store, _tableId, rowId, cellId) => {
                 if (cellId === "x" || cellId === "z") {
                     const row = this.store.getRow("nodes", rowId);
-                    if (row && row.bldgId) {
-                        this.createBuilding(row.bldgId as string);
+                    if (row && row.sectionId) {
+                        const sectionRow = this.store.getRow("sections", row.sectionId as string);
+                        if (sectionRow && sectionRow.bldgId) {
+                            this.createBuilding(sectionRow.bldgId as string);
+                        }
                     }
                 }
             },
@@ -124,46 +207,70 @@ export class BuildingManager {
     }
 
     private createBuilding(buildingId: string) {
-        if (this.buildingMeshes.has(buildingId)) {
-            const mesh = this.buildingMeshes.get(buildingId);
-            if (mesh) {
-                // Unregister from lightmap
-                this.lightmapManager?.unregisterMesh(`building_${buildingId}`);
-
-                this.scene.remove(mesh);
-                mesh.geometry.dispose();
-                if (Array.isArray(mesh.material)) {
-                    mesh.material.forEach((m) => m.dispose());
-                } else {
-                    mesh.material.dispose();
-                }
-                this.buildingMeshes.delete(buildingId);
+        // Clean up existing building group
+        if (this.buildingGroups.has(buildingId)) {
+            const group = this.buildingGroups.get(buildingId);
+            if (group) {
+                group.traverse((child) => {
+                    if (child instanceof THREE.Mesh) {
+                        const sectionId = child.userData.sectionId as string;
+                        this.lightmapManager?.unregisterMesh(`section_${sectionId}`);
+                        child.geometry.dispose();
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach((m) => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                        this.sectionMeshes.delete(sectionId);
+                        this.originalMaterials.delete(sectionId);
+                    }
+                });
+                this.scene.remove(group);
+                this.buildingGroups.delete(buildingId);
             }
         }
 
         const building = this.store.getRow("buildings", buildingId);
         if (!building) return;
 
-        const nodes: { x: number; z: number; idx: number }[] = [];
-        this.store.getRowIds("nodes").forEach((rowId) => {
-            const row = this.store.getRow("nodes", rowId);
-            if (row.bldgId === buildingId) {
-                nodes.push({ x: row.x as number, z: row.z as number, idx: row.idx as number });
+        const sections = this.getSectionsForBuilding(buildingId);
+        if (sections.length === 0) return;
+
+        const buildingGroup = new THREE.Group();
+        buildingGroup.userData.buildingId = buildingId;
+
+        for (const section of sections) {
+            const mesh = this.createSectionMesh(section, buildingId);
+            if (mesh) {
+                buildingGroup.add(mesh);
+                this.sectionMeshes.set(section.sectionId, mesh);
+                this.originalMaterials.set(section.sectionId, mesh.material as THREE.Material);
+
+                // If this building is currently selected, apply the semi-transparent material
+                if (this.selectedBuildingId === buildingId) {
+                    const originalMaterial = mesh.material as THREE.MeshPhongMaterial;
+                    this.lightmapManager?.unregisterMesh(`section_${section.sectionId}`);
+                    const selectedMaterial = new THREE.MeshPhongMaterial({
+                        color: originalMaterial.color,
+                        transparent: true,
+                        opacity: 0.5,
+                    });
+                    mesh.material = selectedMaterial;
+                } else {
+                    this.lightmapManager?.registerMesh(`section_${section.sectionId}`, mesh);
+                }
             }
-        });
+        }
 
-        nodes.sort((a, b) => a.idx - b.idx);
+        this.buildingGroups.set(buildingId, buildingGroup);
+        this.scene.add(buildingGroup);
+    }
 
-        if (nodes.length < 3) return;
-
-        const floorHeight = (building.floorHeight as number) || 3;
-        const floorCount = (building.floorCount as number) || 1;
-        const height = floorHeight * floorCount;
-        const baseElevation = (building.baseElevation as number) || 0;
-        const color = (building.color as string) || "#ffffff";
+    private createSectionMesh(section: SectionData, buildingId: string): THREE.Mesh | null {
+        const nodes = this.getNodesForSection(section.sectionId);
+        if (nodes.length < 3) return null;
 
         // Create a THREE.Shape from the node coordinates
-        // Negate Z to account for coordinate system transformation after rotation
         const shape = new THREE.Shape();
         shape.moveTo(nodes[0].x, -nodes[0].z);
         for (let i = 1; i < nodes.length; i++) {
@@ -172,7 +279,7 @@ export class BuildingManager {
         shape.closePath();
 
         const geometry = new THREE.ExtrudeGeometry(shape, {
-            depth: height,
+            depth: section.height,
             bevelEnabled: false,
         });
 
@@ -184,7 +291,6 @@ export class BuildingManager {
             let minV = Infinity,
                 maxV = -Infinity;
 
-            // Find UV bounds
             for (let i = 0; i < uvAttr.count; i++) {
                 const u = uvAttr.getX(i);
                 const v = uvAttr.getY(i);
@@ -197,7 +303,6 @@ export class BuildingManager {
             const rangeU = maxU - minU || 1;
             const rangeV = maxV - minV || 1;
 
-            // Normalize to 0-1 range
             for (let i = 0; i < uvAttr.count; i++) {
                 const u = uvAttr.getX(i);
                 const v = uvAttr.getY(i);
@@ -207,39 +312,22 @@ export class BuildingManager {
         }
 
         const material = new THREE.MeshPhongMaterial({
-            color: color,
+            color: section.color,
         });
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.buildingId = buildingId;
+        mesh.userData.sectionId = section.sectionId;
 
-        // Store original material for selection restoration
-        this.originalMaterials.set(buildingId, material);
-
-        // If this building is currently selected, apply the semi-transparent material
-        if (this.selectedBuildingId === buildingId) {
-            const selectedMaterial = new THREE.MeshPhongMaterial({
-                color: material.color,
-                transparent: true,
-                opacity: 0.5,
-            });
-            mesh.material = selectedMaterial;
-        }
-
-        // ExtrudeGeometry extrudes along Z axis, we need Y-up
-        // Rotate so the extrusion goes up (Y axis)
+        // ExtrudeGeometry extrudes along Z axis, rotate so extrusion goes up (Y axis)
         mesh.rotation.x = -Math.PI / 2;
 
-        // Position at base elevation
-        mesh.position.y = baseElevation;
+        // Position at section's base elevation
+        mesh.position.y = section.baseElevation;
 
-        this.buildingMeshes.set(buildingId, mesh);
-        this.scene.add(mesh);
-
-        // Register with lightmap manager
-        this.lightmapManager?.registerMesh(`building_${buildingId}`, mesh);
+        return mesh;
     }
 
     public dispose() {
@@ -249,19 +337,26 @@ export class BuildingManager {
         if (this.nodeListenerId) {
             this.store.delListener(this.nodeListenerId);
         }
-        this.buildingMeshes.forEach((mesh, buildingId) => {
-            // Unregister from lightmap
-            this.lightmapManager?.unregisterMesh(`building_${buildingId}`);
-
-            this.scene.remove(mesh);
-            mesh.geometry.dispose();
-            if (Array.isArray(mesh.material)) {
-                mesh.material.forEach((m) => m.dispose());
-            } else {
-                mesh.material.dispose();
-            }
+        if (this.sectionListenerId) {
+            this.store.delListener(this.sectionListenerId);
+        }
+        this.buildingGroups.forEach((group) => {
+            group.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    const sectionId = child.userData.sectionId as string;
+                    this.lightmapManager?.unregisterMesh(`section_${sectionId}`);
+                    child.geometry.dispose();
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach((m) => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+            this.scene.remove(group);
         });
-        this.buildingMeshes.clear();
+        this.buildingGroups.clear();
+        this.sectionMeshes.clear();
         this.originalMaterials.clear();
     }
 }

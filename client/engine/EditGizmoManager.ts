@@ -21,6 +21,13 @@ interface NodeData {
     idx: number;
 }
 
+interface SectionData {
+    sectionId: string;
+    sectionIdx: number;
+    baseElevation: number;
+    height: number;
+}
+
 export class EditGizmoManager {
     private scene: THREE.Scene;
     private store: WorldsyncStore;
@@ -40,6 +47,7 @@ export class EditGizmoManager {
 
     // State
     private editingBuildingId: string | null = null;
+    private editingSectionId: string | null = null;
     private hoveredNodeId: string | null = null;
     private draggingNodeId: string | null = null;
     private dragStartPosition: THREE.Vector3 = new THREE.Vector3();
@@ -48,7 +56,9 @@ export class EditGizmoManager {
     // Listeners
     private toolListenerId: string | null = null;
     private selectionListenerId: string | null = null;
+    private sectionSelectionListenerId: string | null = null;
     private editingListenerId: string | null = null;
+    private editingSectionListenerId: string | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
@@ -75,16 +85,30 @@ export class EditGizmoManager {
                 this.checkEditMode(
                     newValue as string | undefined,
                     this.localStore?.getValue("selectedBuildingId") as string | undefined,
+                    this.localStore?.getValue("selectedSectionId") as string | undefined,
                 );
             },
         );
 
-        // Listen for selection changes
+        // Listen for building selection changes
         this.selectionListenerId = this.localStore.addValueListener(
             "selectedBuildingId",
             (_store, _valueId, newValue) => {
                 this.checkEditMode(
                     this.localStore?.getValue("currentTool") as string | undefined,
+                    newValue as string | undefined,
+                    this.localStore?.getValue("selectedSectionId") as string | undefined,
+                );
+            },
+        );
+
+        // Listen for section selection changes
+        this.sectionSelectionListenerId = this.localStore.addValueListener(
+            "selectedSectionId",
+            (_store, _valueId, newValue) => {
+                this.checkEditMode(
+                    this.localStore?.getValue("currentTool") as string | undefined,
+                    this.localStore?.getValue("selectedBuildingId") as string | undefined,
                     newValue as string | undefined,
                 );
             },
@@ -97,10 +121,25 @@ export class EditGizmoManager {
                 const editingId = newValue as string | undefined;
                 if (editingId !== this.editingBuildingId) {
                     if (editingId) {
-                        this.enterEditMode(editingId);
+                        const sectionId = this.localStore?.getValue("editingSectionId") as
+                            | string
+                            | undefined;
+                        this.enterEditMode(editingId, sectionId);
                     } else {
                         this.exitEditMode();
                     }
+                }
+            },
+        );
+
+        // Listen for editing section changes
+        this.editingSectionListenerId = this.localStore.addValueListener(
+            "editingSectionId",
+            (_store, _valueId, newValue) => {
+                const sectionId = newValue as string | undefined;
+                if (sectionId !== this.editingSectionId && this.editingBuildingId) {
+                    // Re-enter edit mode with new section
+                    this.enterEditMode(this.editingBuildingId, sectionId);
                 }
             },
         );
@@ -110,45 +149,89 @@ export class EditGizmoManager {
         const initialSelection = this.localStore.getValue("selectedBuildingId") as
             | string
             | undefined;
-        this.checkEditMode(initialTool, initialSelection);
+        const initialSection = this.localStore.getValue("selectedSectionId") as string | undefined;
+        this.checkEditMode(initialTool, initialSelection, initialSection);
+    }
+
+    private getSectionsForBuilding(buildingId: string): SectionData[] {
+        const sections: SectionData[] = [];
+        this.store.getRowIds("sections").forEach((sectionId) => {
+            const row = this.store.getRow("sections", sectionId);
+            if (row.bldgId === buildingId) {
+                sections.push({
+                    sectionId,
+                    sectionIdx: row.sectionIdx as number,
+                    baseElevation: row.baseElevation as number,
+                    height: row.height as number,
+                });
+            }
+        });
+        sections.sort((a, b) => a.sectionIdx - b.sectionIdx);
+        return sections;
     }
 
     private checkEditMode(
         currentTool: string | undefined,
         selectedBuildingId: string | undefined,
+        selectedSectionId: string | undefined,
     ): void {
         const shouldBeEditing = currentTool === "building" && selectedBuildingId !== undefined;
 
-        if (shouldBeEditing && selectedBuildingId !== this.editingBuildingId) {
-            // Enter edit mode for the selected building
-            this.localStore?.setValue("editingBuildingId", selectedBuildingId);
-            this.enterEditMode(selectedBuildingId);
+        if (shouldBeEditing) {
+            const buildingChanged = selectedBuildingId !== this.editingBuildingId;
+            const sectionChanged = selectedSectionId !== this.editingSectionId;
+
+            if (buildingChanged || sectionChanged) {
+                // Determine which section to edit
+                let sectionToEdit = selectedSectionId;
+
+                // If no section selected or section doesn't belong to this building, pick the first one
+                if (!sectionToEdit || buildingChanged) {
+                    const sections = this.getSectionsForBuilding(selectedBuildingId);
+                    if (sections.length > 0) {
+                        sectionToEdit = sections[0].sectionId;
+                        this.localStore?.setValue("selectedSectionId", sectionToEdit);
+                    }
+                }
+
+                this.localStore?.setValue("editingBuildingId", selectedBuildingId);
+                if (sectionToEdit) {
+                    this.localStore?.setValue("editingSectionId", sectionToEdit);
+                }
+                this.enterEditMode(selectedBuildingId, sectionToEdit);
+            }
         } else if (!shouldBeEditing && this.editingBuildingId) {
             // Exit edit mode
             this.localStore?.delValue("editingBuildingId");
+            this.localStore?.delValue("editingSectionId");
             this.exitEditMode();
         }
     }
 
-    private enterEditMode(buildingId: string): void {
+    private enterEditMode(buildingId: string, sectionId: string | undefined): void {
         this.exitEditMode(); // Clean up any existing edit state
         this.editingBuildingId = buildingId;
-        this.createGizmos(buildingId);
+        this.editingSectionId = sectionId ?? null;
+
+        if (sectionId) {
+            this.createGizmos(sectionId);
+        }
     }
 
     private exitEditMode(): void {
         this.clearGizmos();
         this.editingBuildingId = null;
+        this.editingSectionId = null;
         this.hoveredNodeId = null;
         this.draggingNodeId = null;
         this.originalNodePositions.clear();
     }
 
-    private getNodesForBuilding(buildingId: string): NodeData[] {
+    private getNodesForSection(sectionId: string): NodeData[] {
         const nodes: NodeData[] = [];
         this.store.getRowIds("nodes").forEach((rowId) => {
             const row = this.store.getRow("nodes", rowId);
-            if (row.bldgId === buildingId) {
+            if (row.sectionId === sectionId) {
                 nodes.push({
                     rowId,
                     x: row.x as number,
@@ -161,14 +244,14 @@ export class EditGizmoManager {
         return nodes;
     }
 
-    private createGizmos(buildingId: string): void {
-        const building = this.store.getRow("buildings", buildingId);
-        if (!building) return;
+    private createGizmos(sectionId: string): void {
+        const section = this.store.getRow("sections", sectionId);
+        if (!section) return;
 
-        const nodes = this.getNodesForBuilding(buildingId);
+        const nodes = this.getNodesForSection(sectionId);
         if (nodes.length < 3) return;
 
-        const baseElevation = (building.baseElevation as number) || 0;
+        const baseElevation = (section.baseElevation as number) || 0;
 
         // Store original positions for potential rollback
         nodes.forEach((node) => {
@@ -211,12 +294,12 @@ export class EditGizmoManager {
     }
 
     private updateOutline(): void {
-        if (!this.outlineLine || !this.editingBuildingId) return;
+        if (!this.outlineLine || !this.editingSectionId) return;
 
-        const building = this.store.getRow("buildings", this.editingBuildingId);
-        const baseElevation = (building?.baseElevation as number) || 0;
+        const section = this.store.getRow("sections", this.editingSectionId);
+        const baseElevation = (section?.baseElevation as number) || 0;
 
-        const nodes = this.getNodesForBuilding(this.editingBuildingId);
+        const nodes = this.getNodesForSection(this.editingSectionId);
 
         // Build positions array
         const positions: number[] = [];
@@ -314,12 +397,12 @@ export class EditGizmoManager {
     }
 
     private updateOutlineWithDragPosition(worldPosition: THREE.Vector3): void {
-        if (!this.outlineLine || !this.editingBuildingId || !this.draggingNodeId) return;
+        if (!this.outlineLine || !this.editingSectionId || !this.draggingNodeId) return;
 
-        const building = this.store.getRow("buildings", this.editingBuildingId);
-        const baseElevation = (building?.baseElevation as number) || 0;
+        const section = this.store.getRow("sections", this.editingSectionId);
+        const baseElevation = (section?.baseElevation as number) || 0;
 
-        const nodes = this.getNodesForBuilding(this.editingBuildingId);
+        const nodes = this.getNodesForSection(this.editingSectionId);
 
         // Build positions array with the dragged node's new position
         const positions: number[] = [];
@@ -358,7 +441,7 @@ export class EditGizmoManager {
     }
 
     public endDrag(worldPosition: THREE.Vector3): boolean {
-        if (!this.draggingNodeId || !this.editingBuildingId) {
+        if (!this.draggingNodeId || !this.editingSectionId) {
             this.draggingNodeId = null;
             this.localStore?.delValue("draggingNodeId");
             return false;
@@ -401,9 +484,9 @@ export class EditGizmoManager {
     }
 
     private validateNewPosition(nodeRowId: string, newX: number, newZ: number): boolean {
-        if (!this.editingBuildingId) return false;
+        if (!this.editingSectionId) return false;
 
-        const nodes = this.getNodesForBuilding(this.editingBuildingId);
+        const nodes = this.getNodesForSection(this.editingSectionId);
 
         // Create polygon with the new position
         const polygon: [number, number][] = nodes.map((node) => {
@@ -457,8 +540,14 @@ export class EditGizmoManager {
         if (this.selectionListenerId && this.localStore) {
             this.localStore.delListener(this.selectionListenerId);
         }
+        if (this.sectionSelectionListenerId && this.localStore) {
+            this.localStore.delListener(this.sectionSelectionListenerId);
+        }
         if (this.editingListenerId && this.localStore) {
             this.localStore.delListener(this.editingListenerId);
+        }
+        if (this.editingSectionListenerId && this.localStore) {
+            this.localStore.delListener(this.editingSectionListenerId);
         }
 
         this.clearGizmos();

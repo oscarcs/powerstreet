@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { Line2 } from "three/addons/lines/webgpu/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { Line2NodeMaterial } from "three/webgpu";
-import { WorldsyncStore } from "../../shared/WorldsyncStore";
+import { WorldsyncStore, getSectionBaseElevation, getSortedBuildingSections } from "../../shared/WorldsyncStore";
 import { LocalStore } from "../data/createLocalStore";
 import { isPolygonSelfIntersecting } from "../geometry/PolygonValidation";
 
@@ -24,7 +24,7 @@ interface NodeData {
 interface SectionData {
     sectionId: string;
     sectionIdx: number;
-    baseElevation: number;
+    computedBaseElevation: number;
     height: number;
 }
 
@@ -154,20 +154,7 @@ export class EditGizmoManager {
     }
 
     private getSectionsForBuilding(buildingId: string): SectionData[] {
-        const sections: SectionData[] = [];
-        this.store.getRowIds("sections").forEach((sectionId) => {
-            const row = this.store.getRow("sections", sectionId);
-            if (row.bldgId === buildingId) {
-                sections.push({
-                    sectionId,
-                    sectionIdx: row.sectionIdx as number,
-                    baseElevation: row.baseElevation as number,
-                    height: row.height as number,
-                });
-            }
-        });
-        sections.sort((a, b) => a.sectionIdx - b.sectionIdx);
-        return sections;
+        return getSortedBuildingSections(this.store, buildingId);
     }
 
     private checkEditMode(
@@ -251,7 +238,7 @@ export class EditGizmoManager {
         const nodes = this.getNodesForSection(sectionId);
         if (nodes.length < 3) return;
 
-        const baseElevation = (section.baseElevation as number) || 0;
+        const baseElevation = getSectionBaseElevation(this.store, sectionId);
 
         // Store original positions for potential rollback
         nodes.forEach((node) => {
@@ -296,8 +283,7 @@ export class EditGizmoManager {
     private updateOutline(): void {
         if (!this.outlineLine || !this.editingSectionId) return;
 
-        const section = this.store.getRow("sections", this.editingSectionId);
-        const baseElevation = (section?.baseElevation as number) || 0;
+        const baseElevation = getSectionBaseElevation(this.store, this.editingSectionId);
 
         const nodes = this.getNodesForSection(this.editingSectionId);
 
@@ -351,6 +337,11 @@ export class EditGizmoManager {
         return this.editingBuildingId;
     }
 
+    public getEditingSectionBaseElevation(): number {
+        if (!this.editingSectionId) return 0;
+        return getSectionBaseElevation(this.store, this.editingSectionId);
+    }
+
     public setHoveredNode(nodeRowId: string | null): void {
         // Reset previous hover
         if (this.hoveredNodeId && this.hoveredNodeId !== this.draggingNodeId) {
@@ -399,8 +390,7 @@ export class EditGizmoManager {
     private updateOutlineWithDragPosition(worldPosition: THREE.Vector3): void {
         if (!this.outlineLine || !this.editingSectionId || !this.draggingNodeId) return;
 
-        const section = this.store.getRow("sections", this.editingSectionId);
-        const baseElevation = (section?.baseElevation as number) || 0;
+        const baseElevation = getSectionBaseElevation(this.store, this.editingSectionId);
 
         const nodes = this.getNodesForSection(this.editingSectionId);
 

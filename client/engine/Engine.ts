@@ -5,7 +5,6 @@ import { InputManager } from "../input/InputManager";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { BuildingManager } from "./BuildingManager";
 import { EditGizmoManager } from "./EditGizmoManager";
-import { LightmapManager } from "./LightmapManager";
 import { LocalStore } from "../data/createLocalStore";
 
 export class Engine {
@@ -27,8 +26,7 @@ export class Engine {
     private boundOnMouseDown: ((event: MouseEvent) => void) | null = null;
     private boundOnMouseMove: ((event: MouseEvent) => void) | null = null;
     private boundOnMouseUp: ((event: MouseEvent) => void) | null = null;
-    private groundPlane: THREE.Plane;
-    private lightmapManager: LightmapManager | null = null;
+    // private lightmapManager: LightmapManager | null = null;
     private groundMesh: THREE.Mesh | null = null;
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
@@ -43,7 +41,6 @@ export class Engine {
 
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
         this.setupScene();
         this.setupEventListeners();
@@ -81,10 +78,12 @@ export class Engine {
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     }
 
-    private getGroundIntersection(): THREE.Vector3 | null {
+    private getGroundIntersection(elevation: number = 0): THREE.Vector3 | null {
         this.raycaster.setFromCamera(this.mouse, this.camera.getCamera());
         const intersection = new THREE.Vector3();
-        const result = this.raycaster.ray.intersectPlane(this.groundPlane, intersection);
+        // Create a plane at the specified elevation (plane constant is negative of the distance from origin)
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -elevation);
+        const result = this.raycaster.ray.intersectPlane(plane, intersection);
         return result;
     }
 
@@ -110,7 +109,8 @@ export class Engine {
             const nodeRowId = this.editGizmoManager.getNodeRowIdFromMesh(clickedHandle);
 
             if (nodeRowId) {
-                const worldPos = this.getGroundIntersection();
+                const sectionElevation = this.editGizmoManager.getEditingSectionBaseElevation();
+                const worldPos = this.getGroundIntersection(sectionElevation);
                 if (worldPos) {
                     this.editGizmoManager.startDrag(nodeRowId, worldPos);
                     // Disable orbit controls during drag
@@ -129,7 +129,8 @@ export class Engine {
         this.updateMousePosition(event);
 
         if (this.editGizmoManager.isDragging()) {
-            const worldPos = this.getGroundIntersection();
+            const sectionElevation = this.editGizmoManager.getEditingSectionBaseElevation();
+            const worldPos = this.getGroundIntersection(sectionElevation);
             if (worldPos) {
                 this.editGizmoManager.updateDrag(worldPos);
             }
@@ -164,7 +165,8 @@ export class Engine {
     private onMouseUp(_event: MouseEvent): void {
         if (!this.localStore || !this.editGizmoManager.isDragging()) return;
 
-        const worldPos = this.getGroundIntersection();
+        const sectionElevation = this.editGizmoManager.getEditingSectionBaseElevation();
+        const worldPos = this.getGroundIntersection(sectionElevation);
         if (worldPos) {
             this.editGizmoManager.endDrag(worldPos);
         } else {

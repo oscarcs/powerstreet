@@ -2,7 +2,6 @@ import { createStore } from "tinybase/with-schemas";
 import { WorldsyncStore, TABLES_SCHEMA, VALUES_SCHEMA } from "../../shared/WorldsyncStore";
 
 interface SectionConfig {
-    baseElevation: number;
     height: number;
     color: string;
     nodes: { x: number; z: number }[];
@@ -12,6 +11,7 @@ interface BuildingConfig {
     id: string;
     offsetX: number;
     offsetZ: number;
+    baseElevation: number;
     sections: SectionConfig[];
 }
 
@@ -22,9 +22,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-1",
             offsetX: 0,
             offsetZ: 0,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 24,
                     color: "#b8c4ce",
                     nodes: [
@@ -41,9 +41,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-2",
             offsetX: 25,
             offsetZ: 0,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 20,
                     color: "#d4c4b0",
                     nodes: [
@@ -62,9 +62,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-3",
             offsetX: 55,
             offsetZ: 0,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 16,
                     color: "#a8b8a8",
                     nodes: [
@@ -75,7 +75,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
                     ],
                 },
                 {
-                    baseElevation: 16,
                     height: 12,
                     color: "#98a898",
                     nodes: [
@@ -92,9 +91,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-4",
             offsetX: 0,
             offsetZ: 30,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 12,
                     color: "#c8b8b8",
                     nodes: [
@@ -105,7 +104,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
                     ],
                 },
                 {
-                    baseElevation: 12,
                     height: 10,
                     color: "#b8a8a8",
                     nodes: [
@@ -116,7 +114,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
                     ],
                 },
                 {
-                    baseElevation: 22,
                     height: 8,
                     color: "#a89898",
                     nodes: [
@@ -133,9 +130,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-5",
             offsetX: 25,
             offsetZ: 30,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 35,
                     color: "#9898a8",
                     nodes: [
@@ -152,9 +149,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-6",
             offsetX: 55,
             offsetZ: 30,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 24,
                     color: "#b0a898",
                     nodes: [
@@ -173,9 +170,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-7",
             offsetX: 0,
             offsetZ: 60,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 15,
                     color: "#c0c8d0",
                     nodes: [
@@ -186,7 +183,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
                     ],
                 },
                 {
-                    baseElevation: 15,
                     height: 15,
                     color: "#b0b8c0",
                     nodes: [
@@ -197,7 +193,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
                     ],
                 },
                 {
-                    baseElevation: 30,
                     height: 10,
                     color: "#a0a8b0",
                     nodes: [
@@ -214,9 +209,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-8",
             offsetX: 25,
             offsetZ: 60,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 15,
                     color: "#d8d0c8",
                     nodes: [
@@ -233,9 +228,9 @@ function generateTestBuildings(store: WorldsyncStore): void {
             id: "building-9",
             offsetX: 55,
             offsetZ: 60,
+            baseElevation: 0,
             sections: [
                 {
-                    baseElevation: 0,
                     height: 20,
                     color: "#a0b0b8",
                     nodes: [
@@ -256,6 +251,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             roofType: "flat",
             roofParam: 0,
             tileId: "test-tile",
+            baseElevation: building.baseElevation,
         });
 
         building.sections.forEach((section, sectionIdx) => {
@@ -264,7 +260,6 @@ function generateTestBuildings(store: WorldsyncStore): void {
             store.setRow("sections", sectionId, {
                 bldgId: building.id,
                 sectionIdx: sectionIdx,
-                baseElevation: section.baseElevation,
                 height: section.height,
                 color: section.color,
             });

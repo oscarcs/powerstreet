@@ -2,6 +2,7 @@ import * as React from "react";
 import { useStore, useValue } from "tinybase/ui-react";
 import { Plus, Trash2 } from "lucide-react";
 
+import { getSortedBuildingSections, WorldsyncStore } from "../../shared/WorldsyncStore";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/card";
 import { Input } from "./components/input";
 import { Label } from "./components/label";
@@ -23,14 +24,6 @@ import {
 import { cn } from "./utils";
 
 const PANEL_INITIAL_POSITION = { x: window.innerWidth - 288 - 16, y: 16 }; // 288 = w-72, 16 = spacing
-
-interface SectionData {
-    sectionId: string;
-    sectionIdx: number;
-    baseElevation: number;
-    height: number;
-    color: string;
-}
 
 export const BuildingEditorPanel = () => {
     const currentTool = useValue("currentTool", "localStore") as string | undefined;
@@ -123,25 +116,7 @@ export const BuildingEditorPanel = () => {
     // Get sections for this building
     const sections = React.useMemo(() => {
         if (!worldsyncStore || !selectedBuildingId) return [];
-
-        const result: SectionData[] = [];
-        const sectionIds = worldsyncStore.getRowIds("sections");
-
-        for (const sectionId of sectionIds) {
-            const row = worldsyncStore.getRow("sections", sectionId);
-            if (row.bldgId === selectedBuildingId) {
-                result.push({
-                    sectionId,
-                    sectionIdx: row.sectionIdx as number,
-                    baseElevation: row.baseElevation as number,
-                    height: row.height as number,
-                    color: (row.color as string) || "#b8c4ce",
-                });
-            }
-        }
-
-        result.sort((a, b) => a.sectionIdx - b.sectionIdx);
-        return result;
+        return getSortedBuildingSections(worldsyncStore as unknown as WorldsyncStore, selectedBuildingId);
     }, [worldsyncStore, selectedBuildingId]);
 
     // Get current section data
@@ -179,14 +154,6 @@ export const BuildingEditorPanel = () => {
         }
     };
 
-    const handleBaseElevationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!worldsyncStore || !selectedSectionId) return;
-        const value = parseFloat(e.target.value);
-        if (!isNaN(value)) {
-            worldsyncStore.setCell("sections", selectedSectionId, "baseElevation", value);
-        }
-    };
-
     const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!worldsyncStore || !selectedSectionId) return;
         worldsyncStore.setCell("sections", selectedSectionId, "color", e.target.value);
@@ -200,16 +167,14 @@ export const BuildingEditorPanel = () => {
             curr.sectionIdx > prev.sectionIdx ? curr : prev,
         );
 
-        // Calculate new section's base elevation (top of previous section)
-        const newBaseElevation = topmostSection.baseElevation + topmostSection.height;
+        // New section will be placed on top (base elevation is computed from cumulative heights)
         const newSectionIdx = topmostSection.sectionIdx + 1;
         const newSectionId = crypto.randomUUID();
 
-        // Create new section
+        // Create new section (baseElevation is no longer stored, it's computed)
         worldsyncStore.setRow("sections", newSectionId, {
             bldgId: selectedBuildingId,
             sectionIdx: newSectionIdx,
-            baseElevation: newBaseElevation,
             height: topmostSection.height, // Copy height from previous section
             color: topmostSection.color, // Copy color from previous section
         });
@@ -382,10 +347,9 @@ export const BuildingEditorPanel = () => {
                                     <Input
                                         id="baseElevation"
                                         type="number"
-                                        step="0.5"
-                                        value={currentSection.baseElevation}
-                                        onChange={handleBaseElevationChange}
-                                        className="h-8"
+                                        value={currentSection.computedBaseElevation.toFixed(1)}
+                                        disabled
+                                        className="h-8 bg-muted"
                                     />
                                 </div>
 

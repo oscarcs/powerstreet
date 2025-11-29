@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { WorldsyncStore } from "../../shared/WorldsyncStore";
+import { WorldsyncStore, getSortedBuildingSections } from "../../shared/WorldsyncStore";
 import { LocalStore } from "../data/createLocalStore";
 import { LightmapManager } from "./LightmapManager";
 
 interface SectionData {
     sectionId: string;
     sectionIdx: number;
-    baseElevation: number;
+    computedBaseElevation: number;
     height: number;
     color: string;
 }
@@ -129,21 +129,7 @@ export class BuildingManager {
     }
 
     private getSectionsForBuilding(buildingId: string): SectionData[] {
-        const sections: SectionData[] = [];
-        this.store.getRowIds("sections").forEach((sectionId) => {
-            const row = this.store.getRow("sections", sectionId);
-            if (row.bldgId === buildingId) {
-                sections.push({
-                    sectionId,
-                    sectionIdx: row.sectionIdx as number,
-                    baseElevation: row.baseElevation as number,
-                    height: row.height as number,
-                    color: row.color as string,
-                });
-            }
-        });
-        sections.sort((a, b) => a.sectionIdx - b.sectionIdx);
-        return sections;
+        return getSortedBuildingSections(this.store, buildingId);
     }
 
     private getNodesForSection(sectionId: string): NodeData[] {
@@ -324,8 +310,8 @@ export class BuildingManager {
         // ExtrudeGeometry extrudes along Z axis, rotate so extrusion goes up (Y axis)
         mesh.rotation.x = -Math.PI / 2;
 
-        // Position at section's base elevation
-        mesh.position.y = section.baseElevation;
+        // Position at section's computed base elevation (building base + cumulative heights of prior sections)
+        mesh.position.y = section.computedBaseElevation;
 
         return mesh;
     }

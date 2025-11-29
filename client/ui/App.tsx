@@ -1,4 +1,5 @@
 import { MainToolbar } from "./MainToolbar";
+import { BuildingEditorPanel } from "./BuildingEditorPanel";
 import { Store } from "tinybase";
 import { Inspector } from "tinybase/ui-react-inspector";
 import { Provider as TinyBaseProvider } from "tinybase/ui-react";
@@ -12,6 +13,7 @@ const UILayer = () => {
     return (
         <div className="pointer-events-none absolute inset-0 z-10 text-slate-50">
             <MainToolbar />
+            <BuildingEditorPanel />
             <Inspector />
         </div>
     );

@@ -205,7 +205,7 @@ export class LightmapManager {
         this.progressiveLightMap.addObjectsToLightMap(lightmapObjects);
 
         // Show debug lightmap to see what's being baked
-        this.progressiveLightMap.showDebugLightmap(true, new THREE.Vector3(0, 200, 0));
+        this.progressiveLightMap.showDebugLightmap(true, new THREE.Vector3(50, 55, 100));
 
         this.accumulationFrames = 0;
         this._dirty = false;

@@ -246,10 +246,11 @@ export class Engine {
         this.inputManager.update();
         this.camera.update();
 
+        // DISABLED: Lightmap system is being reworked
         // Update lightmap accumulation
-        if (this.lightmapManager) {
-            this.lightmapManager.update(this.camera.getCamera());
-        }
+        // if (this.lightmapManager) {
+        //     this.lightmapManager.update(this.camera.getCamera());
+        // }
 
         this.renderer.render(this.scene, this.camera.getCamera());
     };
@@ -263,26 +264,27 @@ export class Engine {
             this.initializationPromise = this.renderer
                 .initialize()
                 .then(() => {
+                    // DISABLED: Lightmap system is being reworked
                     // Initialize LightmapManager after renderer is ready
-                    this.lightmapManager = new LightmapManager(
-                        this.renderer.getRenderer(),
-                        this.scene,
-                        {
-                            lightMapRes: 1024,
-                            shadowMapRes: 1024, // Higher resolution shadow maps
-                            lightCount: 4,
-                            blendWindow: 200,
-                            ambientWeight: 0.5,
-                        },
-                    );
+                    // this.lightmapManager = new LightmapManager(
+                    //     this.renderer.getRenderer(),
+                    //     this.scene,
+                    //     {
+                    //         lightMapRes: 1024,
+                    //         shadowMapRes: 1024, // Higher resolution shadow maps
+                    //         lightCount: 4,
+                    //         blendWindow: 200,
+                    //         ambientWeight: 0.5,
+                    //     },
+                    // );
 
                     // Register ground mesh for lightmapping (receives shadows but doesn't cast)
-                    if (this.groundMesh) {
-                        this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
-                    }
+                    // if (this.groundMesh) {
+                    //     this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
+                    // }
 
                     // Pass lightmap manager to building manager
-                    this.buildingManager.setLightmapManager(this.lightmapManager);
+                    // this.buildingManager.setLightmapManager(this.lightmapManager);
                 })
                 .catch((error) => {
                     this.initializationPromise = null;
@@ -371,9 +373,10 @@ export class Engine {
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
-        if (this.lightmapManager) {
-            this.lightmapManager.dispose();
-        }
+        // DISABLED: Lightmap system is being reworked
+        // if (this.lightmapManager) {
+        //     this.lightmapManager.dispose();
+        // }
         this.renderer.dispose();
     }
 }

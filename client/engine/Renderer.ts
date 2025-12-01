@@ -80,9 +80,9 @@ export class Renderer {
             camera as THREE.PerspectiveCamera,
         );
 
-        this.ssgiPass.sliceCount.value = 2;
-        this.ssgiPass.stepCount.value = 8;
-        this.ssgiPass.radius.value = 5;
+        this.ssgiPass.sliceCount.value = 1;
+        this.ssgiPass.stepCount.value = 4;
+        this.ssgiPass.radius.value = 1;
         this.ssgiPass.thickness.value = 10;
         this.ssgiPass.aoIntensity.value = 1.0;
         this.ssgiPass.giIntensity.value = 1.0;

@@ -26,6 +26,7 @@ if (uiContainer) {
         createElement(App, {
             localStore: localStore as unknown as Store,
             worldsyncStore: worldsyncStore as unknown as Store,
+            engine,
         }),
     );
 } else {

@@ -28,6 +28,9 @@ export class Engine {
     private boundOnMouseUp: ((event: MouseEvent) => void) | null = null;
     // private lightmapManager: LightmapManager | null = null;
     private groundMesh: THREE.Mesh | null = null;
+    private fps: number = 0;
+    private frameCount: number = 0;
+    private fpsUpdateTime: number = performance.now();
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
         this.scene = new THREE.Scene();
@@ -271,6 +274,18 @@ export class Engine {
 
         this.animationId = requestAnimationFrame(this.animate);
 
+        // Calculate FPS
+        const currentTime = performance.now();
+        this.frameCount++;
+        
+        // Update FPS every 200ms
+        if (currentTime >= this.fpsUpdateTime + 200) {
+            const elapsed = currentTime - this.fpsUpdateTime;
+            this.fps = Math.round((this.frameCount * 1000) / elapsed);
+            this.frameCount = 0;
+            this.fpsUpdateTime = currentTime;
+        }
+
         this.inputManager.update();
         this.camera.update();
 
@@ -374,5 +389,9 @@ export class Engine {
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
         this.renderer.dispose();
+    }
+
+    public getFps(): number {
+        return this.fps;
     }
 }

@@ -26,7 +26,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 24,
-                    color: "#b8c4ce",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 15 },
@@ -45,7 +45,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 20,
-                    color: "#d4c4b0",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 20 },
@@ -66,7 +66,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 16,
-                    color: "#a8b8a8",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 18 },
@@ -76,7 +76,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
                 },
                 {
                     height: 12,
-                    color: "#98a898",
+                    color: "#ffffff",
                     nodes: [
                         { x: 2, z: 2 },
                         { x: 2, z: 16 },
@@ -95,7 +95,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 12,
-                    color: "#c8b8b8",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 18 },
@@ -105,7 +105,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
                 },
                 {
                     height: 10,
-                    color: "#b8a8a8",
+                    color: "#ffffff",
                     nodes: [
                         { x: 3, z: 3 },
                         { x: 3, z: 15 },
@@ -115,7 +115,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
                 },
                 {
                     height: 8,
-                    color: "#a89898",
+                    color: "#ffffff",
                     nodes: [
                         { x: 5, z: 5 },
                         { x: 5, z: 13 },
@@ -134,7 +134,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 35,
-                    color: "#9898a8",
+                    color: "#ff0000",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 16 },
@@ -153,7 +153,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 24,
-                    color: "#b0a898",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 5 },
                         { x: 0, z: 15 },
@@ -174,7 +174,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 15,
-                    color: "#c0c8d0",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 22 },
@@ -184,7 +184,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
                 },
                 {
                     height: 15,
-                    color: "#b0b8c0",
+                    color: "#ffffff",
                     nodes: [
                         { x: 1, z: 1 },
                         { x: 1, z: 21 },
@@ -194,7 +194,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
                 },
                 {
                     height: 10,
-                    color: "#a0a8b0",
+                    color: "#ffffff",
                     nodes: [
                         { x: 2, z: 2 },
                         { x: 2, z: 20 },
@@ -213,7 +213,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 15,
-                    color: "#d8d0c8",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 16 },
@@ -232,7 +232,7 @@ function generateTestBuildings(store: WorldsyncStore): void {
             sections: [
                 {
                     height: 20,
-                    color: "#a0b0b8",
+                    color: "#ffffff",
                     nodes: [
                         { x: 0, z: 0 },
                         { x: 0, z: 14 },

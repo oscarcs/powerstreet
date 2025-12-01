@@ -2,7 +2,11 @@ import * as THREE from "three";
 import { Line2 } from "three/addons/lines/webgpu/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { Line2NodeMaterial } from "three/webgpu";
-import { WorldsyncStore, getSectionBaseElevation, getSortedBuildingSections } from "../../shared/WorldsyncStore";
+import {
+    WorldsyncStore,
+    getSectionBaseElevation,
+    getSortedBuildingSections,
+} from "../../shared/WorldsyncStore";
 import { LocalStore } from "../data/createLocalStore";
 import { isPolygonSelfIntersecting } from "../geometry/PolygonValidation";
 

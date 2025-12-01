@@ -89,14 +89,16 @@ export class BuildingManager {
             if (group) {
                 group.traverse((child) => {
                     if (child instanceof THREE.Mesh && !Array.isArray(child.material)) {
-                        const originalMaterial = child.material as THREE.MeshPhongMaterial;
+                        const originalMaterial = child.material as THREE.MeshPhysicalMaterial;
                         const sectionId = child.userData.sectionId as string;
                         if (!this.originalMaterials.has(sectionId)) {
                             this.originalMaterials.set(sectionId, originalMaterial);
                         }
                         this.lightmapManager?.unregisterMesh(`section_${sectionId}`);
-                        const selectedMaterial = new THREE.MeshPhongMaterial({
+                        const selectedMaterial = new THREE.MeshPhysicalMaterial({
                             color: originalMaterial.color,
+                            roughness: 0.7,
+                            metalness: 0.0,
                             transparent: true,
                             opacity: 0.5,
                             depthWrite: false,
@@ -236,8 +238,10 @@ export class BuildingManager {
                 if (this.selectedBuildingId === buildingId) {
                     const originalMaterial = mesh.material as THREE.MeshPhongMaterial;
                     this.lightmapManager?.unregisterMesh(`section_${section.sectionId}`);
-                    const selectedMaterial = new THREE.MeshPhongMaterial({
+                    const selectedMaterial = new THREE.MeshPhysicalMaterial({
                         color: originalMaterial.color,
+                        roughness: 0.7,
+                        metalness: 0.0,
                         transparent: true,
                         opacity: 0.5,
                     });
@@ -297,8 +301,10 @@ export class BuildingManager {
             uvAttr.needsUpdate = true;
         }
 
-        const material = new THREE.MeshPhongMaterial({
+        const material = new THREE.MeshPhysicalMaterial({
             color: section.color,
+            roughness: 0.7,
+            metalness: 0.0,
         });
 
         const mesh = new THREE.Mesh(geometry, material);

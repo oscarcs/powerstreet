@@ -116,7 +116,10 @@ export const BuildingEditorPanel = () => {
     // Get sections for this building
     const sections = React.useMemo(() => {
         if (!worldsyncStore || !selectedBuildingId) return [];
-        return getSortedBuildingSections(worldsyncStore as unknown as WorldsyncStore, selectedBuildingId);
+        return getSortedBuildingSections(
+            worldsyncStore as unknown as WorldsyncStore,
+            selectedBuildingId,
+        );
     }, [worldsyncStore, selectedBuildingId]);
 
     // Get current section data
@@ -199,12 +202,7 @@ export const BuildingEditorPanel = () => {
     };
 
     const handleRemoveSection = () => {
-        if (
-            !worldsyncStore ||
-            !selectedSectionId ||
-            !isTopmostSection ||
-            sections.length <= 1
-        ) {
+        if (!worldsyncStore || !selectedSectionId || !isTopmostSection || sections.length <= 1) {
             return;
         }
 
@@ -254,7 +252,6 @@ export const BuildingEditorPanel = () => {
                 <CardHeader className="pb-0 pt-3">
                     <CardTitle>Building Editor</CardTitle>
                 </CardHeader>
-
                 <CardContent className="space-y-4">
                     {/* Section Selector */}
                     <div className="space-y-2">

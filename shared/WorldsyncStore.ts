@@ -41,7 +41,7 @@ export interface SectionData {
  */
 export function getSortedBuildingSections(
     store: WorldsyncStore,
-    buildingId: string
+    buildingId: string,
 ): Array<SectionData & { computedBaseElevation: number }> {
     const building = store.getRow("buildings", buildingId);
     const buildingBaseElevation = (building.baseElevation as number) || 0;
@@ -77,10 +77,7 @@ export function getSortedBuildingSections(
 /**
  * Get the computed base elevation for a specific section.
  */
-export function getSectionBaseElevation(
-    store: WorldsyncStore,
-    sectionId: string
-): number {
+export function getSectionBaseElevation(store: WorldsyncStore, sectionId: string): number {
     const section = store.getRow("sections", sectionId);
     if (!section.bldgId) return 0;
 

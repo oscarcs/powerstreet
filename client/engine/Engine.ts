@@ -212,9 +212,11 @@ export class Engine {
         // Large ground plane to receive shadows from buildings
         // Use subdivisions to capture shadow detail in the lightmap
         const groundGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
-        // PlaneGeometry already has 'uv' attribute, no need to add
-        const groundMaterial = new THREE.MeshPhongMaterial({
-            color: 0xffffff,
+        // Use MeshPhysicalMaterial for better GI interaction
+        const groundMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xcccccc,
+            roughness: 0.9,
+            metalness: 0.0,
             depthWrite: true,
         });
         this.groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -223,14 +225,38 @@ export class Engine {
         this.groundMesh.receiveShadow = true;
         this.scene.add(this.groundMesh);
 
-        // Very low ambient light - lightmap provides the main illumination
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        // Ambient light for base illumination
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         this.scene.add(ambientLight);
 
-        // Main directional light for real-time lighting
-        const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
-        mainLight.position.set(50, 100, 50);
-        this.scene.add(mainLight);
+        // Key light - main directional sun light with shadows
+        const keyLight = new THREE.DirectionalLight(0xfffaf0, 2.0);
+        keyLight.position.set(50, 100, 50);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.width = 2048;
+        keyLight.shadow.mapSize.height = 2048;
+        keyLight.shadow.camera.near = 0.5;
+        keyLight.shadow.camera.far = 500;
+        keyLight.shadow.camera.left = -100;
+        keyLight.shadow.camera.right = 100;
+        keyLight.shadow.camera.top = 100;
+        keyLight.shadow.camera.bottom = -100;
+        keyLight.shadow.bias = -0.0001;
+        this.scene.add(keyLight);
+
+        // Fill light - softer light from opposite direction
+        const fillLight = new THREE.DirectionalLight(0x87ceeb, 0.5);
+        fillLight.position.set(-30, 40, -30);
+        this.scene.add(fillLight);
+
+        // Rim/back light for depth separation
+        const rimLight = new THREE.DirectionalLight(0xffd700, 0.3);
+        rimLight.position.set(0, 20, -80);
+        this.scene.add(rimLight);
+
+        // Hemisphere light for natural sky/ground color blending
+        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x444444, 0.4);
+        this.scene.add(hemiLight);
     }
 
     private setupEventListeners(): void {
@@ -248,12 +274,6 @@ export class Engine {
         this.inputManager.update();
         this.camera.update();
 
-        // DISABLED: Lightmap system is being reworked
-        // Update lightmap accumulation
-        // if (this.lightmapManager) {
-        //     this.lightmapManager.update(this.camera.getCamera());
-        // }
-
         this.renderer.render(this.scene, this.camera.getCamera());
     };
 
@@ -263,35 +283,10 @@ export class Engine {
         }
 
         if (!this.initializationPromise) {
-            this.initializationPromise = this.renderer
-                .initialize()
-                .then(() => {
-                    // DISABLED: Lightmap system is being reworked
-                    // Initialize LightmapManager after renderer is ready
-                    // this.lightmapManager = new LightmapManager(
-                    //     this.renderer.getRenderer(),
-                    //     this.scene,
-                    //     {
-                    //         lightMapRes: 1024,
-                    //         shadowMapRes: 1024, // Higher resolution shadow maps
-                    //         lightCount: 4,
-                    //         blendWindow: 200,
-                    //         ambientWeight: 0.5,
-                    //     },
-                    // );
-
-                    // Register ground mesh for lightmapping (receives shadows but doesn't cast)
-                    // if (this.groundMesh) {
-                    //     this.lightmapManager.registerMesh("ground", this.groundMesh, false, true);
-                    // }
-
-                    // Pass lightmap manager to building manager
-                    // this.buildingManager.setLightmapManager(this.lightmapManager);
-                })
-                .catch((error) => {
-                    this.initializationPromise = null;
-                    throw error;
-                });
+            this.initializationPromise = this.renderer.initialize().catch((error) => {
+                this.initializationPromise = null;
+                throw error;
+            });
         }
 
         await this.initializationPromise;
@@ -310,6 +305,9 @@ export class Engine {
                     if (this.isDisposed) {
                         return;
                     }
+
+                    // Set up SSGI post-processing after renderer is initialized
+                    this.renderer.setupPostProcessing(this.scene, this.camera.getCamera());
 
                     this.isRunning = true;
                     this.animate();
@@ -375,10 +373,6 @@ export class Engine {
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
-        // DISABLED: Lightmap system is being reworked
-        // if (this.lightmapManager) {
-        //     this.lightmapManager.dispose();
-        // }
         this.renderer.dispose();
     }
 }

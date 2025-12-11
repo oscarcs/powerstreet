@@ -18,7 +18,7 @@ const UILayer = ({ engine }: { engine: Engine }) => {
             <MainToolbar />
             <BuildingEditorPanel />
             <Inspector />
-            <DebugPanel getFps={() => engine.getFps()} />
+            <DebugPanel engine={engine} />
         </div>
     );
 };

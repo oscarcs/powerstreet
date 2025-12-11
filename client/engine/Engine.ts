@@ -212,10 +212,7 @@ export class Engine {
     }
 
     private setupScene(): void {
-        // Large ground plane to receive shadows from buildings
-        // Use subdivisions to capture shadow detail in the lightmap
         const groundGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
-        // Use MeshPhysicalMaterial for better GI interaction
         const groundMaterial = new THREE.MeshPhysicalMaterial({
             color: 0xcccccc,
             roughness: 0.9,
@@ -227,10 +224,6 @@ export class Engine {
         this.groundMesh.position.y = 0;
         this.groundMesh.receiveShadow = true;
         this.scene.add(this.groundMesh);
-
-        // Ambient light for base illumination
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-        this.scene.add(ambientLight);
 
         // Key light - main directional sun light with shadows
         const keyLight = new THREE.DirectionalLight(0xfffaf0, 2.0);
@@ -244,7 +237,8 @@ export class Engine {
         keyLight.shadow.camera.right = 100;
         keyLight.shadow.camera.top = 100;
         keyLight.shadow.camera.bottom = -100;
-        keyLight.shadow.bias = -0.0001;
+        keyLight.shadow.bias = -0.001;
+        keyLight.shadow.normalBias = 0.02;
         this.scene.add(keyLight);
 
         // Fill light - softer light from opposite direction
@@ -321,7 +315,6 @@ export class Engine {
                         return;
                     }
 
-                    // Set up SSGI post-processing after renderer is initialized
                     this.renderer.setupPostProcessing(this.scene, this.camera.getCamera());
 
                     this.isRunning = true;
@@ -393,5 +386,13 @@ export class Engine {
 
     public getFps(): number {
         return this.fps;
+    }
+
+    public setSSGIEnabled(enabled: boolean): void {
+        this.renderer.setSSGIEnabled(enabled);
+    }
+
+    public isSSGIEnabled(): boolean {
+        return this.renderer.isSSGIEnabled();
     }
 }

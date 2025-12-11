@@ -11,17 +11,21 @@ import {
     directionToColor,
     colorToDirection,
     sample,
+    uniform,
+    mix,
 } from "three/tsl";
-import { ssgi } from "three/addons/tsl/display/SSGINode.js";
-import { traa } from "three/addons/tsl/display/TRAANode.js";
+import { ssgi } from "./SSGINode";
+import type SSGINode from "./SSGINode";
+import { traa } from "./TRAANode";
 
 export class Renderer {
     private renderer: THREE.WebGPURenderer;
     private initialized = false;
     private initTask: Promise<void> | null = null;
     private postProcessing: THREE.PostProcessing | null = null;
-    private ssgiEnabled = true;
-    private ssgiPass: ReturnType<typeof ssgi> | null = null;
+    private ssgiEnabled = false;
+    private ssgiPass: SSGINode | null = null;
+    private ssgiBlend: ReturnType<typeof uniform<number>> | null = null;
 
     constructor(canvas: HTMLCanvasElement) {
         this.renderer = new THREE.WebGPURenderer({ canvas });
@@ -73,12 +77,13 @@ export class Renderer {
 
         // Create SSGI pass
         const sceneNormal = sample((uv: any) => colorToDirection(scenePassNormal.sample(uv)));
-        this.ssgiPass = ssgi(
+        const ssgiPassNode = ssgi(
             scenePassColor,
             scenePassDepth,
             sceneNormal,
             camera as THREE.PerspectiveCamera,
         );
+        this.ssgiPass = ssgiPassNode as unknown as SSGINode;
 
         this.ssgiPass.sliceCount.value = 1;
         this.ssgiPass.stepCount.value = 4;
@@ -87,14 +92,21 @@ export class Renderer {
         this.ssgiPass.aoIntensity.value = 1.0;
         this.ssgiPass.giIntensity.value = 1.0;
         this.ssgiPass.useTemporalFiltering = true;
+        this.ssgiPass.setEnabled(this.ssgiEnabled); // Start disabled for performance
+
+        // Uniform to blend between raw scene and SSGI composite (0 = scene only, 1 = full SSGI)
+        this.ssgiBlend = uniform(this.ssgiEnabled ? 1.0 : 0.0);
 
         // Composite GI with scene: add ambient occlusion and indirect lighting
-        const gi = this.ssgiPass.rgb;
-        const ao = this.ssgiPass.a;
-        const compositePass = vec4(
+        const gi = ssgiPassNode.rgb;
+        const ao = ssgiPassNode.a;
+        const ssgiComposite = vec4(
             add(scenePassColor.rgb.mul(ao), scenePassDiffuse.rgb.mul(gi)),
             scenePassColor.a,
         );
+        
+        // Mix between raw scene and SSGI composite based on blend uniform
+        const compositePass = mix(scenePassColor, ssgiComposite, this.ssgiBlend);
 
         // Apply Temporal Reprojection Anti-Aliasing for smoother results
         const traaPass = traa(
@@ -111,7 +123,8 @@ export class Renderer {
             throw new Error("Renderer.initialize() must resolve before calling render().");
         }
 
-        if (this.ssgiEnabled && this.postProcessing) {
+        // Always use post-processing to keep temporal buffers warm
+        if (this.postProcessing) {
             this.postProcessing.render();
         } else {
             this.renderer.render(scene, camera);
@@ -120,13 +133,21 @@ export class Renderer {
 
     public setSSGIEnabled(enabled: boolean): void {
         this.ssgiEnabled = enabled;
+        // Toggle the blend uniform and SSGI computation
+        if (this.ssgiBlend) {
+            this.ssgiBlend.value = enabled ? 1.0 : 0.0;
+        }
+        // Enable/disable SSGI computation for performance
+        if (this.ssgiPass) {
+            this.ssgiPass.setEnabled(enabled);
+        }
     }
 
     public isSSGIEnabled(): boolean {
         return this.ssgiEnabled;
     }
 
-    public getSSGIPass(): ReturnType<typeof ssgi> | null {
+    public getSSGIPass(): SSGINode | null {
         return this.ssgiPass;
     }
 

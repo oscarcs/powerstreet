@@ -5,6 +5,7 @@ import { InputManager } from "../input/InputManager";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { BuildingManager } from "./BuildingManager";
 import { EditGizmoManager } from "./EditGizmoManager";
+import { StreetManager } from "./StreetManager";
 import { LocalStore } from "../data/createLocalStore";
 
 export class Engine {
@@ -13,7 +14,9 @@ export class Engine {
     private inputManager: InputManager;
     private scene: THREE.Scene;
     private buildingManager: BuildingManager;
+    private streetManager: StreetManager;
     private editGizmoManager: EditGizmoManager;
+    private store: WorldsyncStore;
     private localStore: LocalStore | null = null;
     private raycaster: THREE.Raycaster;
     private mouse: THREE.Vector2;
@@ -31,8 +34,10 @@ export class Engine {
     private fps: number = 0;
     private frameCount: number = 0;
     private fpsUpdateTime: number = performance.now();
+    private lastStreetNodeId: string | null = null;
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
+        this.store = store;
         this.scene = new THREE.Scene();
         this.renderer = new Renderer(canvas);
         this.camera = new Camera(this.renderer.getAspectRatio());
@@ -40,6 +45,7 @@ export class Engine {
 
         this.inputManager = new InputManager(this.camera);
         this.buildingManager = new BuildingManager(this.scene, store);
+        this.streetManager = new StreetManager(this.scene, store);
         this.editGizmoManager = new EditGizmoManager(this.scene, store);
 
         this.raycaster = new THREE.Raycaster();
@@ -52,6 +58,11 @@ export class Engine {
     public setLocalStore(localStore: LocalStore): void {
         this.localStore = localStore;
         this.buildingManager.setLocalStore(localStore);
+        
+        this.localStore.addValueListener("currentTool", () => {
+            this.lastStreetNodeId = null;
+        });
+
         this.editGizmoManager.setLocalStore(localStore);
         this.setupClickListener();
         this.setupDragListeners();
@@ -184,6 +195,34 @@ export class Engine {
         if (!this.localStore) return;
 
         const currentTool = this.localStore.getValue("currentTool");
+
+        if (currentTool === "draw-streets") {
+            this.updateMousePosition(event);
+            const intersection = this.getGroundIntersection(0);
+            
+            if (intersection) {
+                // TODO: Check for snapping to existing nodes here
+                
+                const newNodeId = this.store.addRow("streetNodes", {
+                    x: intersection.x,
+                    z: intersection.z,
+                });
+
+                if (this.lastStreetNodeId && newNodeId) {
+                    this.store.addRow("streetEdges", {
+                        startNodeId: this.lastStreetNodeId,
+                        endNodeId: newNodeId,
+                        width: 10,
+                    });
+                }
+
+                if (newNodeId) {
+                    this.lastStreetNodeId = newNodeId;
+                }
+            }
+            return;
+        }
+
         if (currentTool !== "select") return;
 
         const canvas = this.renderer.getRenderer().domElement;

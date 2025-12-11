@@ -3,3 +3,4 @@ export * from "./Engine";
 export * from "./Renderer";
 export * from "./EditGizmoManager";
 export * from "./LightmapManager";
+export * from "./StreetManager";

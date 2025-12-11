@@ -20,6 +20,21 @@ export const TABLES_SCHEMA = {
         z: { type: "number" },
         idx: { type: "number" },
     },
+    streetNodes: {
+        x: { type: "number" },
+        z: { type: "number" },
+    },
+    streetEdges: {
+        startNodeId: { type: "string" },
+        endNodeId: { type: "string" },
+        streetGroupId: { type: "string" },
+        width: { type: "number" },
+    },
+    streetGroups: {
+        name: { type: "string" },
+        color: { type: "string" },
+        defaultWidth: { type: "number" },
+    },
 } as const;
 
 export const VALUES_SCHEMA = {} as const;

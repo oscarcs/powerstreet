@@ -85,22 +85,28 @@ export class StreetManager {
 
         const vertices = new Float32Array([
             v1.x, v1.y, v1.z,
-            v2.x, v2.y, v2.z,
             v3.x, v3.y, v3.z,
             v2.x, v2.y, v2.z,
+            
+            v3.x, v3.y, v3.z,
             v4.x, v4.y, v4.z,
-            v3.x, v3.y, v3.z
+            v2.x, v2.y, v2.z
         ]);
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.computeVertexNormals();
         
-        const material = new THREE.MeshBasicMaterial({ 
+        const material = new THREE.MeshStandardMaterial({ 
             color: color,
-            side: THREE.DoubleSide 
+            side: THREE.DoubleSide,
+            roughness: 0.9,
+            metalness: 0.1
         });
 
-        return new THREE.Mesh(geometry, material);
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.receiveShadow = true;
+        return mesh;
     }
 
     public dispose(): void {

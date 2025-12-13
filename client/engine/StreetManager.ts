@@ -1,5 +1,14 @@
 import * as THREE from "three";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
+import { ExtrudePolyline, Vec2 } from "../geometry/ExtrudePolyline";
+
+interface EdgeData {
+    id: string;
+    startNodeId: string;
+    endNodeId: string;
+    width: number;
+    color: number;
+}
 
 export class StreetManager {
     private scene: THREE.Scene;
@@ -47,66 +56,146 @@ export class StreetManager {
         this.edgeMeshes.clear();
 
         const edgeIds = this.store.getRowIds("streetEdges");
-        
-        edgeIds.forEach(edgeId => {
-            const edge = this.store.getRow("streetEdges", edgeId);
-            const startNode = this.store.getRow("streetNodes", edge.startNodeId as string);
-            const endNode = this.store.getRow("streetNodes", edge.endNodeId as string);
+        const edges: EdgeData[] = [];
+        const adj = new Map<string, string[]>(); // nodeId -> edgeIds
 
-            if (startNode && endNode) {
-                const start = new THREE.Vector3(startNode.x as number, 0, startNode.z as number);
-                const end = new THREE.Vector3(endNode.x as number, 0, endNode.z as number);
-                const width = (edge.width as number) || 5;
-
-                // Get color from group if available
-                let color = 0xffffff;
-                if (edge.streetGroupId) {
-                    const group = this.store.getRow("streetGroups", edge.streetGroupId as string);
-                    if (group && group.color) {
-                        color = parseInt((group.color as string).replace("#", "0x"), 16);
-                    }
+        // 1. Gather Data & Build Adjacency
+        edgeIds.forEach(id => {
+            const row = this.store.getRow("streetEdges", id);
+            if (!row) return;
+            
+            const startNodeId = row.startNodeId as string;
+            const endNodeId = row.endNodeId as string;
+            
+            // Resolve color
+            let color = 0xffffff;
+            if (row.streetGroupId) {
+                const group = this.store.getRow("streetGroups", row.streetGroupId as string);
+                if (group && group.color) {
+                    color = parseInt((group.color as string).replace("#", "0x"), 16);
                 }
-
-                const mesh = this.createStreetMesh(start, end, width, color);
-                mesh.userData = { edgeId, type: 'streetEdge' };
-                
-                this.streetGroup.add(mesh);
-                this.edgeMeshes.set(edgeId, mesh);
             }
+            
+            const edge: EdgeData = {
+                id,
+                startNodeId,
+                endNodeId,
+                width: (row.width as number) || 5,
+                color
+            };
+            edges.push(edge);
+
+            if (!adj.has(startNodeId)) adj.set(startNodeId, []);
+            if (!adj.has(endNodeId)) adj.set(endNodeId, []);
+            adj.get(startNodeId)!.push(id);
+            adj.get(endNodeId)!.push(id);
         });
+
+        const edgeMap = new Map(edges.map(e => [e.id, e]));
+        const visited = new Set<string>();
+
+        // 2. Build Polylines
+        for (const startEdge of edges) {
+            if (visited.has(startEdge.id)) continue;
+
+            // Start a new polyline
+            visited.add(startEdge.id);
+            
+            const points: string[] = [startEdge.startNodeId, startEdge.endNodeId]; // Node IDs
+            const polylineEdges: string[] = [startEdge.id];
+            
+            // Grow Forward (from endNode)
+            let currNodeId = startEdge.endNodeId;
+            let prevEdgeId = startEdge.id;
+            
+            while (true) {
+                const connectedEdges = adj.get(currNodeId);
+                if (!connectedEdges || connectedEdges.length !== 2) break; // Junction or endpoint
+                
+                const nextEdgeId = connectedEdges.find(id => id !== prevEdgeId);
+                if (!nextEdgeId) break;
+                
+                if (visited.has(nextEdgeId)) break; // Cycle closed or already visited
+                
+                const nextEdge = edgeMap.get(nextEdgeId)!;
+                
+                // Check properties
+                const prevEdge = edgeMap.get(prevEdgeId)!;
+                if (nextEdge.width !== prevEdge.width || nextEdge.color !== prevEdge.color) break;
+                
+                // Add to polyline
+                visited.add(nextEdgeId);
+                polylineEdges.push(nextEdgeId);
+                
+                // Determine next node
+                const nextNodeId = nextEdge.startNodeId === currNodeId ? nextEdge.endNodeId : nextEdge.startNodeId;
+                points.push(nextNodeId);
+                
+                prevEdgeId = nextEdgeId;
+                currNodeId = nextNodeId;
+            }
+            
+            // Grow Backward (from startNode)
+            currNodeId = startEdge.startNodeId;
+            prevEdgeId = startEdge.id;
+            
+            while (true) {
+                const connectedEdges = adj.get(currNodeId);
+                if (!connectedEdges || connectedEdges.length !== 2) break;
+                
+                const nextEdgeId = connectedEdges.find(id => id !== prevEdgeId);
+                if (!nextEdgeId) break;
+                
+                if (visited.has(nextEdgeId)) break;
+                
+                const nextEdge = edgeMap.get(nextEdgeId)!;
+                const prevEdge = edgeMap.get(prevEdgeId)!;
+                
+                if (nextEdge.width !== prevEdge.width || nextEdge.color !== prevEdge.color) break;
+                
+                visited.add(nextEdgeId);
+                polylineEdges.unshift(nextEdgeId);
+                
+                const nextNodeId = nextEdge.startNodeId === currNodeId ? nextEdge.endNodeId : nextEdge.startNodeId;
+                points.unshift(nextNodeId);
+                
+                prevEdgeId = nextEdgeId;
+                currNodeId = nextNodeId;
+            }
+            
+            // 3. Create Mesh
+            this.createPolylineMesh(points, startEdge.width, startEdge.color, polylineEdges);
+        }
     }
 
-    private createStreetMesh(start: THREE.Vector3, end: THREE.Vector3, width: number, color: number): THREE.Mesh {
-        const direction = new THREE.Vector3().subVectors(end, start).normalize();
-        const perp = new THREE.Vector3(-direction.z, 0, direction.x);
-        const halfWidth = width / 2;
+    private createPolylineMesh(nodeIds: string[], width: number, color: number, edgeIds: string[]): void {
+        const points: Vec2[] = [];
+        for (const nodeId of nodeIds) {
+            const node = this.store.getRow("streetNodes", nodeId);
+            if (node) {
+                points.push([node.x as number, node.z as number]);
+            }
+        }
         
-        const v1 = new THREE.Vector3().copy(start).addScaledVector(perp, halfWidth);
-        const v2 = new THREE.Vector3().copy(start).addScaledVector(perp, -halfWidth);
-        const v3 = new THREE.Vector3().copy(end).addScaledVector(perp, halfWidth);
-        const v4 = new THREE.Vector3().copy(end).addScaledVector(perp, -halfWidth);
+        if (points.length < 2) return;
+
+        const extruder = new ExtrudePolyline({
+            thickness: width,
+            cap: "square",
+            join: "miter",
+            miterLimit: 3
+        });
         
-        // Lift slightly to avoid z-fighting
-        const yOffset = 0.1;
-        v1.y += yOffset;
-        v2.y += yOffset;
-        v3.y += yOffset;
-        v4.y += yOffset;
-
-        const vertices = new Float32Array([
-            v1.x, v1.y, v1.z,
-            v3.x, v3.y, v3.z,
-            v2.x, v2.y, v2.z,
-            
-            v3.x, v3.y, v3.z,
-            v4.x, v4.y, v4.z,
-            v2.x, v2.y, v2.z
-        ]);
-
+        const meshData = extruder.build(points);
+        
         const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+        geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
         geometry.computeVertexNormals();
         
+        // Lift slightly
+        geometry.translate(0, 0.1, 0);
+
         const material = new THREE.MeshStandardMaterial({ 
             color: color,
             side: THREE.DoubleSide,
@@ -116,41 +205,37 @@ export class StreetManager {
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.receiveShadow = true;
-        return mesh;
+        mesh.userData = { edgeIds, type: 'streetPolyline' };
+        
+        this.streetGroup.add(mesh);
+        
+        // Map edges to this mesh
+        edgeIds.forEach(id => this.edgeMeshes.set(id, mesh));
     }
 
     public updatePreview(start: THREE.Vector3, end: THREE.Vector3, width: number): void {
         this.clearPreview();
 
-        const direction = new THREE.Vector3().subVectors(end, start).normalize();
-        const perp = new THREE.Vector3(-direction.z, 0, direction.x);
-        const halfWidth = width / 2;
+        const points: Vec2[] = [
+            [start.x, start.z],
+            [end.x, end.z]
+        ];
+
+        const extruder = new ExtrudePolyline({
+            thickness: width,
+            cap: "square",
+            join: "miter"
+        });
         
-        const v1 = new THREE.Vector3().copy(start).addScaledVector(perp, halfWidth);
-        const v2 = new THREE.Vector3().copy(start).addScaledVector(perp, -halfWidth);
-        const v3 = new THREE.Vector3().copy(end).addScaledVector(perp, halfWidth);
-        const v4 = new THREE.Vector3().copy(end).addScaledVector(perp, -halfWidth);
+        const meshData = extruder.build(points);
+        
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+        geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+        geometry.computeVertexNormals();
         
         // Lift slightly higher than regular streets to appear above
-        const yOffset = 0.15;
-        v1.y += yOffset;
-        v2.y += yOffset;
-        v3.y += yOffset;
-        v4.y += yOffset;
-
-        const vertices = new Float32Array([
-            v1.x, v1.y, v1.z,
-            v3.x, v3.y, v3.z,
-            v2.x, v2.y, v2.z,
-            
-            v3.x, v3.y, v3.z,
-            v4.x, v4.y, v4.z,
-            v2.x, v2.y, v2.z
-        ]);
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        geometry.computeVertexNormals();
+        geometry.translate(0, 0.15, 0);
         
         this.previewMesh = new THREE.Mesh(geometry, this.previewMaterial);
         this.streetGroup.add(this.previewMesh);

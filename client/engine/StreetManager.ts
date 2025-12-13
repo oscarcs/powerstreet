@@ -6,12 +6,22 @@ export class StreetManager {
     private store: WorldsyncStore;
     private streetGroup: THREE.Group;
     private edgeMeshes: Map<string, THREE.Object3D> = new Map(); // edgeId -> mesh
+    private previewMesh: THREE.Mesh | null = null;
+    private previewMaterial: THREE.MeshStandardMaterial;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
         this.store = store;
         this.streetGroup = new THREE.Group();
         this.scene.add(this.streetGroup);
+
+        this.previewMaterial = new THREE.MeshStandardMaterial({
+            color: 0x44aaff,
+            transparent: true,
+            opacity: 0.6,
+            side: THREE.DoubleSide
+        });
+
         this.initialize();
     }
 
@@ -109,7 +119,54 @@ export class StreetManager {
         return mesh;
     }
 
+    public updatePreview(start: THREE.Vector3, end: THREE.Vector3, width: number): void {
+        this.clearPreview();
+
+        const direction = new THREE.Vector3().subVectors(end, start).normalize();
+        const perp = new THREE.Vector3(-direction.z, 0, direction.x);
+        const halfWidth = width / 2;
+        
+        const v1 = new THREE.Vector3().copy(start).addScaledVector(perp, halfWidth);
+        const v2 = new THREE.Vector3().copy(start).addScaledVector(perp, -halfWidth);
+        const v3 = new THREE.Vector3().copy(end).addScaledVector(perp, halfWidth);
+        const v4 = new THREE.Vector3().copy(end).addScaledVector(perp, -halfWidth);
+        
+        // Lift slightly higher than regular streets to appear above
+        const yOffset = 0.15;
+        v1.y += yOffset;
+        v2.y += yOffset;
+        v3.y += yOffset;
+        v4.y += yOffset;
+
+        const vertices = new Float32Array([
+            v1.x, v1.y, v1.z,
+            v3.x, v3.y, v3.z,
+            v2.x, v2.y, v2.z,
+            
+            v3.x, v3.y, v3.z,
+            v4.x, v4.y, v4.z,
+            v2.x, v2.y, v2.z
+        ]);
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.computeVertexNormals();
+        
+        this.previewMesh = new THREE.Mesh(geometry, this.previewMaterial);
+        this.streetGroup.add(this.previewMesh);
+    }
+
+    public clearPreview(): void {
+        if (this.previewMesh) {
+            this.streetGroup.remove(this.previewMesh);
+            this.previewMesh.geometry.dispose();
+            this.previewMesh = null;
+        }
+    }
+
     public dispose(): void {
+        this.clearPreview();
+        this.previewMaterial.dispose();
         this.scene.remove(this.streetGroup);
         this.streetGroup.clear();
         this.edgeMeshes.clear();

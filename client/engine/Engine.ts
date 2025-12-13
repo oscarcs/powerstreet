@@ -61,6 +61,7 @@ export class Engine {
         
         this.localStore.addValueListener("currentTool", () => {
             this.lastStreetNodeId = null;
+            this.streetManager.clearPreview();
         });
 
         this.editGizmoManager.setLocalStore(localStore);
@@ -138,7 +139,28 @@ export class Engine {
     }
 
     private onMouseMove(event: MouseEvent): void {
-        if (!this.localStore || !this.editGizmoManager.isEditMode()) return;
+        if (!this.localStore) return;
+
+        const currentTool = this.localStore.getValue("currentTool");
+
+        if (currentTool === "draw-streets") {
+            this.updateMousePosition(event);
+            if (this.lastStreetNodeId) {
+                const intersection = this.getGroundIntersection(0);
+                if (intersection) {
+                    const lastNode = this.store.getRow("streetNodes", this.lastStreetNodeId);
+                    if (lastNode) {
+                        const startPos = new THREE.Vector3(lastNode.x as number, 0, lastNode.z as number);
+                        this.streetManager.updatePreview(startPos, intersection, 10);
+                    }
+                }
+            } else {
+                this.streetManager.clearPreview();
+            }
+            return;
+        }
+
+        if (!this.editGizmoManager.isEditMode()) return;
 
         this.updateMousePosition(event);
 

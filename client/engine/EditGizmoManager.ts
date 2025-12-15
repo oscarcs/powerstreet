@@ -39,6 +39,7 @@ export class EditGizmoManager {
 
     // Gizmo objects
     private handleMeshes: Map<string, THREE.Mesh> = new Map(); // nodeRowId -> mesh
+    private streetHandleMeshes: Map<string, THREE.Mesh> = new Map(); // streetNodeId -> mesh
     private outlineLine: Line2 | null = null;
     private outlineGeometry: LineGeometry | null = null;
     private outlineMaterial: Line2NodeMaterial;
@@ -166,7 +167,16 @@ export class EditGizmoManager {
         selectedBuildingId: string | undefined,
         selectedSectionId: string | undefined,
     ): void {
-        const shouldBeEditing = currentTool === "select" && selectedBuildingId !== undefined;
+        const isSelectTool = currentTool === "select";
+
+        // Handle Street Gizmos
+        if (isSelectTool) {
+            this.updateStreetGizmos();
+        } else {
+            this.clearStreetGizmos();
+        }
+
+        const shouldBeEditing = isSelectTool && selectedBuildingId !== undefined;
 
         if (shouldBeEditing) {
             const buildingChanged = selectedBuildingId !== this.editingBuildingId;
@@ -197,6 +207,38 @@ export class EditGizmoManager {
             this.localStore?.delValue("editingSectionId");
             this.exitEditMode();
         }
+    }
+
+    private updateStreetGizmos(): void {
+        if (this.streetHandleMeshes.size > 0) return;
+
+        const nodeIds = this.store.getRowIds("streetNodes");
+        nodeIds.forEach((id) => {
+            const row = this.store.getRow("streetNodes", id);
+            if (!row) return;
+            this.createStreetGizmo(id, row.x as number, row.z as number);
+        });
+    }
+
+    private createStreetGizmo(id: string, x: number, z: number): void {
+        const handle = new THREE.Mesh(this.handleGeometry, this.handleMaterial.clone());
+        handle.position.set(x, 0.2, z);
+        handle.userData.nodeRowId = id;
+        handle.userData.isGizmoHandle = true;
+        handle.userData.isStreetNode = true;
+        this.streetHandleMeshes.set(id, handle);
+        this.scene.add(handle);
+    }
+
+    private clearStreetGizmos(): void {
+        this.streetHandleMeshes.forEach((mesh) => {
+            this.scene.remove(mesh);
+            // Shared geometry, do not dispose
+            if (mesh.material instanceof THREE.Material) {
+                mesh.material.dispose();
+            }
+        });
+        this.streetHandleMeshes.clear();
     }
 
     private enterEditMode(buildingId: string, sectionId: string | undefined): void {
@@ -330,11 +372,14 @@ export class EditGizmoManager {
     }
 
     public getHandleMeshes(): THREE.Mesh[] {
-        return Array.from(this.handleMeshes.values());
+        return [
+            ...Array.from(this.handleMeshes.values()),
+            ...Array.from(this.streetHandleMeshes.values()),
+        ];
     }
 
     public isEditMode(): boolean {
-        return this.editingBuildingId !== null;
+        return this.editingBuildingId !== null || this.streetHandleMeshes.size > 0;
     }
 
     public getEditingBuildingId(): string | null {
@@ -349,7 +394,9 @@ export class EditGizmoManager {
     public setHoveredNode(nodeRowId: string | null): void {
         // Reset previous hover
         if (this.hoveredNodeId && this.hoveredNodeId !== this.draggingNodeId) {
-            const prevMesh = this.handleMeshes.get(this.hoveredNodeId);
+            let prevMesh = this.handleMeshes.get(this.hoveredNodeId);
+            if (!prevMesh) prevMesh = this.streetHandleMeshes.get(this.hoveredNodeId);
+
             if (prevMesh) {
                 (prevMesh.material as THREE.MeshBasicMaterial).color.setHex(HANDLE_COLOR);
             }
@@ -359,7 +406,9 @@ export class EditGizmoManager {
 
         // Apply hover effect (unless dragging)
         if (nodeRowId && nodeRowId !== this.draggingNodeId) {
-            const mesh = this.handleMeshes.get(nodeRowId);
+            let mesh = this.handleMeshes.get(nodeRowId);
+            if (!mesh) mesh = this.streetHandleMeshes.get(nodeRowId);
+
             if (mesh) {
                 (mesh.material as THREE.MeshBasicMaterial).color.setHex(HANDLE_HOVER_COLOR);
             }
@@ -371,7 +420,9 @@ export class EditGizmoManager {
         this.dragStartPosition.copy(worldPosition);
         this.localStore?.setValue("draggingNodeId", nodeRowId);
 
-        const mesh = this.handleMeshes.get(nodeRowId);
+        let mesh = this.handleMeshes.get(nodeRowId);
+        if (!mesh) mesh = this.streetHandleMeshes.get(nodeRowId);
+
         if (mesh) {
             (mesh.material as THREE.MeshBasicMaterial).color.setHex(HANDLE_DRAG_COLOR);
         }
@@ -388,6 +439,12 @@ export class EditGizmoManager {
 
             // Update outline in real-time by temporarily modifying node data
             this.updateOutlineWithDragPosition(worldPosition);
+        } else {
+            const streetMesh = this.streetHandleMeshes.get(this.draggingNodeId);
+            if (streetMesh) {
+                streetMesh.position.x = worldPosition.x;
+                streetMesh.position.z = worldPosition.z;
+            }
         }
     }
 
@@ -435,18 +492,37 @@ export class EditGizmoManager {
     }
 
     public endDrag(worldPosition: THREE.Vector3): boolean {
-        if (!this.draggingNodeId || !this.editingSectionId) {
+        if (!this.draggingNodeId) {
             this.draggingNodeId = null;
             this.localStore?.delValue("draggingNodeId");
             return false;
         }
 
         const nodeRowId = this.draggingNodeId;
-
-        // Convert world position to store coordinates
-        // World coords: (x, y, z) -> Store coords: (x, z) where storeX = worldX, storeZ = worldZ
         const newX = worldPosition.x;
         const newZ = worldPosition.z;
+
+        if (this.streetHandleMeshes.has(nodeRowId)) {
+            // Street node
+            this.store.setCell("streetNodes", nodeRowId, "x", newX);
+            this.store.setCell("streetNodes", nodeRowId, "z", newZ);
+
+            // Reset drag state
+            const mesh = this.streetHandleMeshes.get(nodeRowId);
+            if (mesh) {
+                (mesh.material as THREE.MeshBasicMaterial).color.setHex(HANDLE_COLOR);
+            }
+
+            this.draggingNodeId = null;
+            this.localStore?.delValue("draggingNodeId");
+            return true;
+        }
+
+        if (!this.editingSectionId) {
+            this.draggingNodeId = null;
+            this.localStore?.delValue("draggingNodeId");
+            return false;
+        }
 
         // Validate the new polygon before saving
         if (!this.validateNewPosition(nodeRowId, newX, newZ)) {
@@ -497,6 +573,21 @@ export class EditGizmoManager {
     private rollbackDrag(): void {
         if (!this.draggingNodeId) return;
 
+        if (this.streetHandleMeshes.has(this.draggingNodeId)) {
+            const row = this.store.getRow("streetNodes", this.draggingNodeId);
+            if (row) {
+                const mesh = this.streetHandleMeshes.get(this.draggingNodeId);
+                if (mesh) {
+                    mesh.position.x = row.x as number;
+                    mesh.position.z = row.z as number;
+                    (mesh.material as THREE.MeshBasicMaterial).color.setHex(HANDLE_COLOR);
+                }
+            }
+            this.draggingNodeId = null;
+            this.localStore?.delValue("draggingNodeId");
+            return;
+        }
+
         const original = this.originalNodePositions.get(this.draggingNodeId);
         if (original) {
             const mesh = this.handleMeshes.get(this.draggingNodeId);
@@ -545,6 +636,7 @@ export class EditGizmoManager {
         }
 
         this.clearGizmos();
+        this.clearStreetGizmos();
 
         // Dispose shared resources
         this.handleMaterial.dispose();

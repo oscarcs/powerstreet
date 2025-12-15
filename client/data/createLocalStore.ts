@@ -16,6 +16,5 @@ export type LocalStore = Store<[typeof TABLES_SCHEMA, typeof VALUES_SCHEMA]>;
 export function createLocalStore(): LocalStore {
     return createStore()
         .setTablesSchema(TABLES_SCHEMA)
-        .setValuesSchema(VALUES_SCHEMA)
-        .setValue("currentTool", "select");
+        .setValuesSchema(VALUES_SCHEMA);
 }

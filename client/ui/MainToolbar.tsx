@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useStore, useValue } from "tinybase/ui-react";
-import { Building, LandPlot, MousePointer2, SplinePointer, type LucideIcon } from "lucide-react";
+import { LandPlot, MousePointer2, SplinePointer, type LucideIcon } from "lucide-react";
 
 import { Toolbar, ToolbarToggleGroup, ToolbarToggleItem } from "./components/toolbar";
 import {
@@ -12,7 +12,7 @@ import {
 } from "./components/tooltip";
 import { cn } from "./utils";
 
-type ToolId = "select" | "draw-streets" | "zoning" | "building";
+type ToolId = "select" | "draw-streets" | "zoning";
 
 interface ToolDescriptor {
     id: ToolId;
@@ -26,11 +26,10 @@ const tools: ToolDescriptor[] = [
     { id: "select", label: "Select", icon: MousePointer2 },
     { id: "draw-streets", label: "Draw Streets", icon: SplinePointer },
     { id: "zoning", label: "Zoning", icon: LandPlot },
-    { id: "building", label: "Building", icon: Building },
 ];
 
 export const MainToolbar = () => {
-    const activeTool = (useValue("currentTool", "localStore") as ToolId) ?? "select";
+    const activeTool = (useValue("currentTool", "localStore") as ToolId | undefined);
     const store = useStore("localStore");
     const [position, setPosition] = React.useState(() => ({
         ...TOOLBAR_INITIAL_POSITION,
@@ -142,10 +141,11 @@ export const MainToolbar = () => {
                         aria-label="Tool selection"
                         value={activeTool}
                         onValueChange={(value) => {
-                            if (!value) {
-                                return;
+                            if (value) {
+                                store?.setValue("currentTool", value);
+                            } else {
+                                store?.delValue("currentTool");
                             }
-                            store?.setValue("currentTool", value);
                         }}
                         className="items-stretch p-2"
                     >

@@ -141,7 +141,7 @@ export const BuildingEditorPanel = () => {
     }, [worldsyncStore, selectedBuildingId]);
 
     // Don't render if not in building tool mode or no building selected
-    if (currentTool !== "building" || !selectedBuildingId) {
+    if (currentTool !== "select" || !selectedBuildingId) {
         return null;
     }
 

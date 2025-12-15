@@ -166,7 +166,7 @@ export class EditGizmoManager {
         selectedBuildingId: string | undefined,
         selectedSectionId: string | undefined,
     ): void {
-        const shouldBeEditing = currentTool === "building" && selectedBuildingId !== undefined;
+        const shouldBeEditing = currentTool === "select" && selectedBuildingId !== undefined;
 
         if (shouldBeEditing) {
             const buildingChanged = selectedBuildingId !== this.editingBuildingId;

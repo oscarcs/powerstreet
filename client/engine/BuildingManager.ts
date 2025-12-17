@@ -166,11 +166,25 @@ export class BuildingManager {
             "sections",
             null,
             (_store, _tableId, rowId) => {
+                // Try to find building ID from existing meshes (in case of deletion)
+                let buildingId: string | undefined;
                 if (rowId) {
+                    const existingMesh = this.sectionMeshes.get(rowId);
+                    if (existingMesh) {
+                        buildingId = existingMesh.userData.buildingId;
+                    }
+                }
+
+                // If not found (new section or not rendered yet), try to get from store
+                if (!buildingId && rowId) {
                     const row = this.store.getRow("sections", rowId);
                     if (row && row.bldgId) {
-                        this.createBuilding(row.bldgId as string);
+                        buildingId = row.bldgId as string;
                     }
+                }
+
+                if (buildingId) {
+                    this.createBuilding(buildingId);
                 }
             },
         );

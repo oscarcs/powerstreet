@@ -112,11 +112,9 @@ export const BuildingEditorPanel = () => {
 
     const worldsyncStore = useStore("worldsyncStore");
 
-    // Subscribe to tables/rows to ensure reactivity
     const sectionsTable = useTable("sections", "worldsyncStore");
     const buildingRow = useRow("buildings", selectedBuildingId || "", "worldsyncStore");
 
-    // Drag state for floating panel
     const [position, setPosition] = React.useState(() => ({
         ...PANEL_INITIAL_POSITION,
     }));
@@ -168,7 +166,6 @@ export const BuildingEditorPanel = () => {
         };
     }, [isDragging]);
 
-    // Compute sections data
     const sectionsData = React.useMemo(() => {
         if (!selectedBuildingId || !sectionsTable) return [];
 
@@ -234,7 +231,6 @@ export const BuildingEditorPanel = () => {
     const handleRemoveSection = (sectionId: string) => {
         if (!worldsyncStore) return;
 
-        // Delete all nodes belonging to this section
         const nodeIds = worldsyncStore.getRowIds("nodes");
         for (const nodeId of nodeIds) {
             const node = worldsyncStore.getRow("nodes", nodeId);
@@ -243,7 +239,6 @@ export const BuildingEditorPanel = () => {
             }
         }
 
-        // Delete the section
         worldsyncStore.delRow("sections", sectionId);
     };
 
@@ -255,7 +250,6 @@ export const BuildingEditorPanel = () => {
             }}
         >
             <Card className="gap-0 overflow-hidden py-0 shadow-lg">
-                {/* Drag handle */}
                 <div
                     data-panel-drag-handle
                     className={cn(
@@ -273,8 +267,9 @@ export const BuildingEditorPanel = () => {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 max-h-[80vh] overflow-y-auto">
-                    
-                    {/* Sections List */}
+                    <div className="text-xs font-medium text-muted-foreground">
+                        Height: {sectionsData.reduce((acc, s) => acc + s.height, 0).toFixed(1)} units
+                    </div>
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <Label>Sections</Label>
@@ -297,14 +292,14 @@ export const BuildingEditorPanel = () => {
                         </div>
 
                         <div className="space-y-2">
-                            {sectionsData.map((section, index) => (
+                            {[...sectionsData].reverse().map((section, i) => (
                                 <SectionItem
                                     key={section.id}
                                     sectionId={section.id}
-                                    index={index}
+                                    index={sectionsData.length - 1 - i}
                                     height={section.height}
                                     baseElevation={section.computedBaseElevation}
-                                    isTopmost={index === sectionsData.length - 1 && sectionsData.length > 1}
+                                    isTopmost={i === 0 && sectionsData.length > 1}
                                     onHeightChange={handleHeightChange}
                                     onDelete={handleRemoveSection}
                                 />
@@ -314,7 +309,6 @@ export const BuildingEditorPanel = () => {
 
                     <Separator />
 
-                    {/* Building Properties */}
                     <div className="space-y-3">
                         <div className="space-y-1.5">
                             <Label className="text-xs">Roof Type</Label>
@@ -337,7 +331,7 @@ export const BuildingEditorPanel = () => {
                                     <ToolbarToggleItem value="flat" size="sm" className="flex-1">
                                         Flat
                                     </ToolbarToggleItem>
-                                    {/* Add more roof types here if needed */}
+                                    {/* TODO: Add additional roof types */}
                                 </ToolbarToggleGroup>
                             </Toolbar>
                         </div>

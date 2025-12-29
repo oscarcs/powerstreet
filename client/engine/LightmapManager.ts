@@ -253,10 +253,8 @@ export class LightmapManager {
                 this.accumulationFrames / this.settings.transitionFrames,
             );
 
-            const easedProgress = this.easeInExpo(this.transitionProgress);
-            const targetIntensity = easedProgress;
-
             // TODO: Figure out how to transition between old and new lightmaps properly
+            // const targetIntensity = this.easeInExpo(this.transitionProgress);
 
             // End transition when complete
             if (this.transitionProgress >= 1) {
@@ -266,9 +264,10 @@ export class LightmapManager {
         }
     }
 
-    private easeInExpo(t: number): number {
-        return t === 0 ? 0 : Math.pow(2, 10 * (t - 1));
-    }
+    // TODO: Used for lightmap transition (see above TODO)
+    // private easeInExpo(t: number): number {
+    //     return t === 0 ? 0 : Math.pow(2, 10 * (t - 1));
+    // }
 
     private jitterLights(): void {
         const { lightRadius, ambientWeight } = this.settings;

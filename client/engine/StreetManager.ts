@@ -3,6 +3,7 @@ import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { ExtrudePolyline, Vec2 } from "../geometry/ExtrudePolyline";
 import { TileManager } from "../spatial/TileManager";
 import { BoundingBox } from "../spatial/SpatialIndex";
+import { SnapResult } from "./TransportGraphUtils";
 
 interface EdgeData {
     id: string;
@@ -12,6 +13,11 @@ interface EdgeData {
     color: number;
 }
 
+export interface PreviewOptions {
+    snapResult?: SnapResult;
+    isValid?: boolean;
+}
+
 export class StreetManager {
     private scene: THREE.Scene;
     private store: WorldsyncStore;
@@ -19,7 +25,14 @@ export class StreetManager {
     private edgeMeshes: Map<string, THREE.Object3D> = new Map(); // edgeId -> mesh
     private previewMesh: THREE.Mesh | null = null;
     private previewMaterial: THREE.MeshStandardMaterial;
+    private invalidPreviewMaterial: THREE.MeshStandardMaterial;
     private tileManager: TileManager | null = null;
+
+    // Snap indicator meshes
+    private snapIndicatorGroup: THREE.Group;
+    private nodeSnapIndicator: THREE.Mesh | null = null;
+    private edgeSnapIndicator: THREE.Mesh | null = null;
+    private edgeHighlightMesh: THREE.Mesh | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
@@ -27,8 +40,19 @@ export class StreetManager {
         this.streetGroup = new THREE.Group();
         this.scene.add(this.streetGroup);
 
+        this.snapIndicatorGroup = new THREE.Group();
+        this.snapIndicatorGroup.name = "SnapIndicators";
+        this.scene.add(this.snapIndicatorGroup);
+
         this.previewMaterial = new THREE.MeshStandardMaterial({
             color: 0x44aaff,
+            transparent: true,
+            opacity: 0.6,
+            side: THREE.DoubleSide
+        });
+
+        this.invalidPreviewMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff4444,
             transparent: true,
             opacity: 0.6,
             side: THREE.DoubleSide
@@ -266,12 +290,24 @@ export class StreetManager {
         edgeIds.forEach(id => this.edgeMeshes.set(id, mesh));
     }
 
-    public updatePreview(start: THREE.Vector3, end: THREE.Vector3, width: number): void {
+    public updatePreview(
+        start: THREE.Vector3,
+        end: THREE.Vector3,
+        width: number,
+        options: PreviewOptions = {}
+    ): void {
         this.clearPreview();
+
+        const { snapResult, isValid = true } = options;
+
+        // Use snapped position if available
+        const endPos = snapResult && snapResult.type !== "none"
+            ? new THREE.Vector3(snapResult.position.x, 0, snapResult.position.z)
+            : end;
 
         const points: Vec2[] = [
             [start.x, start.z],
-            [end.x, end.z]
+            [endPos.x, endPos.z]
         ];
 
         const extruder = new ExtrudePolyline({
@@ -279,19 +315,134 @@ export class StreetManager {
             cap: "square",
             join: "miter"
         });
-        
+
         const meshData = extruder.build(points);
-        
+
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
         geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
         geometry.computeVertexNormals();
-        
+
         // Lift slightly higher than regular streets to appear above
         geometry.translate(0, 0.15, 0);
-        
-        this.previewMesh = new THREE.Mesh(geometry, this.previewMaterial);
+
+        // Use red material if invalid (crossing), blue if valid
+        const material = isValid ? this.previewMaterial : this.invalidPreviewMaterial;
+        this.previewMesh = new THREE.Mesh(geometry, material);
         this.streetGroup.add(this.previewMesh);
+
+        // Show snap indicators
+        this.updateSnapIndicators(snapResult);
+    }
+
+    /**
+     * Update snap indicator visuals based on snap result.
+     */
+    private updateSnapIndicators(snapResult?: SnapResult): void {
+        this.clearSnapIndicators();
+
+        if (!snapResult || snapResult.type === "none") {
+            return;
+        }
+
+        const { x, z } = snapResult.position;
+
+        if (snapResult.type === "node") {
+            // Show ring around node
+            const ringGeometry = new THREE.RingGeometry(1.5, 2.5, 32);
+            ringGeometry.rotateX(-Math.PI / 2);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide,
+            });
+            this.nodeSnapIndicator = new THREE.Mesh(ringGeometry, ringMaterial);
+            this.nodeSnapIndicator.position.set(x, 0.2, z);
+            this.snapIndicatorGroup.add(this.nodeSnapIndicator);
+        } else if (snapResult.type === "edge" && snapResult.edgeId) {
+            // Show dot at snap point
+            const dotGeometry = new THREE.CircleGeometry(1, 16);
+            dotGeometry.rotateX(-Math.PI / 2);
+            const dotMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.9,
+            });
+            this.edgeSnapIndicator = new THREE.Mesh(dotGeometry, dotMaterial);
+            this.edgeSnapIndicator.position.set(x, 0.25, z);
+            this.snapIndicatorGroup.add(this.edgeSnapIndicator);
+
+            // Highlight the edge that would be split
+            this.highlightEdge(snapResult.edgeId);
+        }
+    }
+
+    /**
+     * Highlight an edge that would be split.
+     */
+    private highlightEdge(edgeId: string): void {
+        const edge = this.store.getRow("streetEdges", edgeId);
+        if (!edge) return;
+
+        const startNode = this.store.getRow("streetNodes", edge.startNodeId as string);
+        const endNode = this.store.getRow("streetNodes", edge.endNodeId as string);
+        if (!startNode || !endNode) return;
+
+        const width = ((edge.width as number) || 5) + 2; // Slightly wider than edge
+
+        const points: Vec2[] = [
+            [startNode.x as number, startNode.z as number],
+            [endNode.x as number, endNode.z as number]
+        ];
+
+        const extruder = new ExtrudePolyline({
+            thickness: width,
+            cap: "square",
+            join: "miter"
+        });
+
+        const meshData = extruder.build(points);
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+        geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+        geometry.computeVertexNormals();
+        geometry.translate(0, 0.12, 0); // Between street and preview
+
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 0.4,
+            side: THREE.DoubleSide,
+        });
+
+        this.edgeHighlightMesh = new THREE.Mesh(geometry, material);
+        this.snapIndicatorGroup.add(this.edgeHighlightMesh);
+    }
+
+    /**
+     * Clear snap indicator meshes.
+     */
+    private clearSnapIndicators(): void {
+        if (this.nodeSnapIndicator) {
+            this.snapIndicatorGroup.remove(this.nodeSnapIndicator);
+            this.nodeSnapIndicator.geometry.dispose();
+            (this.nodeSnapIndicator.material as THREE.Material).dispose();
+            this.nodeSnapIndicator = null;
+        }
+        if (this.edgeSnapIndicator) {
+            this.snapIndicatorGroup.remove(this.edgeSnapIndicator);
+            this.edgeSnapIndicator.geometry.dispose();
+            (this.edgeSnapIndicator.material as THREE.Material).dispose();
+            this.edgeSnapIndicator = null;
+        }
+        if (this.edgeHighlightMesh) {
+            this.snapIndicatorGroup.remove(this.edgeHighlightMesh);
+            this.edgeHighlightMesh.geometry.dispose();
+            (this.edgeHighlightMesh.material as THREE.Material).dispose();
+            this.edgeHighlightMesh = null;
+        }
     }
 
     public clearPreview(): void {
@@ -300,12 +451,15 @@ export class StreetManager {
             this.previewMesh.geometry.dispose();
             this.previewMesh = null;
         }
+        this.clearSnapIndicators();
     }
 
     public dispose(): void {
         this.clearPreview();
         this.previewMaterial.dispose();
+        this.invalidPreviewMaterial.dispose();
         this.scene.remove(this.streetGroup);
+        this.scene.remove(this.snapIndicatorGroup);
         this.streetGroup.clear();
         this.edgeMeshes.clear();
     }

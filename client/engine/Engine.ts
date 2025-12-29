@@ -8,6 +8,8 @@ import { EditGizmoManager } from "./EditGizmoManager";
 import { StreetManager } from "./StreetManager";
 import { LocalStore } from "../data/createLocalStore";
 import { TileManager } from "../spatial/TileManager";
+import { DebugRenderer, DebugRenderOptions } from "./DebugRenderer";
+import { TransportGraphUtils, STREET_LAYER_CONFIG, SnapResult } from "./TransportGraphUtils";
 
 export class Engine {
     private renderer: Renderer;
@@ -18,6 +20,7 @@ export class Engine {
     private streetManager: StreetManager;
     private editGizmoManager: EditGizmoManager;
     private tileManager: TileManager;
+    private debugRenderer: DebugRenderer;
     private store: WorldsyncStore;
     private localStore: LocalStore | null = null;
     private raycaster: THREE.Raycaster;
@@ -37,6 +40,10 @@ export class Engine {
     private frameCount: number = 0;
     private fpsUpdateTime: number = performance.now();
     private lastStreetNodeId: string | null = null;
+    private transportGraphUtils: TransportGraphUtils;
+    private currentSnapResult: SnapResult | null = null;
+    private isPreviewValid: boolean = true;
+    private static readonly SNAP_THRESHOLD = 5; // meters
 
     constructor(canvas: HTMLCanvasElement, store: WorldsyncStore) {
         this.store = store;
@@ -57,6 +64,12 @@ export class Engine {
         this.buildingManager.setTileManager(this.tileManager);
         this.streetManager.setTileManager(this.tileManager);
 
+        // Initialize debug renderer
+        this.debugRenderer = new DebugRenderer(this.scene, store, this.tileManager);
+
+        // Initialize transport graph utilities for snapping/intersection detection
+        this.transportGraphUtils = new TransportGraphUtils(store, STREET_LAYER_CONFIG);
+
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
 
@@ -69,6 +82,27 @@ export class Engine {
      */
     public getTileManager(): TileManager {
         return this.tileManager;
+    }
+
+    /**
+     * Get the debug renderer for external access.
+     */
+    public getDebugRenderer(): DebugRenderer {
+        return this.debugRenderer;
+    }
+
+    /**
+     * Toggle debug visualization and return new visibility state.
+     */
+    public toggleDebug(): boolean {
+        return this.debugRenderer.toggle();
+    }
+
+    /**
+     * Set debug render options.
+     */
+    public setDebugOptions(options: Partial<DebugRenderOptions>): void {
+        this.debugRenderer.setOptions(options);
     }
 
     public setLocalStore(localStore: LocalStore): void {
@@ -161,13 +195,57 @@ export class Engine {
 
         if (currentTool === "draw-streets") {
             this.updateMousePosition(event);
-            if (this.lastStreetNodeId) {
-                const intersection = this.getGroundIntersection(0);
-                if (intersection) {
+            const intersection = this.getGroundIntersection(0);
+
+            if (intersection) {
+                // Check for snap targets at cursor position
+                this.currentSnapResult = this.transportGraphUtils.findSnapTarget(
+                    intersection.x,
+                    intersection.z,
+                    Engine.SNAP_THRESHOLD
+                );
+
+                if (this.lastStreetNodeId) {
                     const lastNode = this.store.getRow("streetNodes", this.lastStreetNodeId);
                     if (lastNode) {
                         const startPos = new THREE.Vector3(lastNode.x as number, 0, lastNode.z as number);
-                        this.streetManager.updatePreview(startPos, intersection, 10);
+
+                        // Determine end position (snapped or raw)
+                        const endX = this.currentSnapResult.type !== "none"
+                            ? this.currentSnapResult.position.x
+                            : intersection.x;
+                        const endZ = this.currentSnapResult.type !== "none"
+                            ? this.currentSnapResult.position.z
+                            : intersection.z;
+
+                        // Check if this edge would cross any existing edges
+                        const crossingResult = this.transportGraphUtils.wouldCrossExistingEdge(
+                            this.lastStreetNodeId,
+                            endX,
+                            endZ
+                        );
+                        this.isPreviewValid = !crossingResult.crosses;
+
+                        this.streetManager.updatePreview(startPos, intersection, 10, {
+                            snapResult: this.currentSnapResult,
+                            isValid: this.isPreviewValid,
+                        });
+                    }
+                } else {
+                    // No active drawing, but still show snap feedback
+                    // We pass a zero-length preview just to show snap indicators
+                    if (this.currentSnapResult.type !== "none") {
+                        const pos = new THREE.Vector3(
+                            this.currentSnapResult.position.x,
+                            0,
+                            this.currentSnapResult.position.z
+                        );
+                        this.streetManager.updatePreview(pos, pos, 10, {
+                            snapResult: this.currentSnapResult,
+                            isValid: true,
+                        });
+                    } else {
+                        this.streetManager.clearPreview();
                     }
                 }
             } else {
@@ -237,25 +315,53 @@ export class Engine {
         if (currentTool === "draw-streets") {
             this.updateMousePosition(event);
             const intersection = this.getGroundIntersection(0);
-            
-            if (intersection) {
-                // TODO: Check for snapping to existing nodes here
-                
-                const newNodeId = this.store.addRow("streetNodes", {
-                    x: intersection.x,
-                    z: intersection.z,
-                });
 
-                if (this.lastStreetNodeId && newNodeId) {
+            if (intersection) {
+                // Block creation if preview is invalid (would cross existing edge)
+                if (this.lastStreetNodeId && !this.isPreviewValid) {
+                    // Don't create the edge - it would cross an existing edge
+                    return;
+                }
+
+                // Check for snap target at click position
+                const snapResult = this.transportGraphUtils.findSnapTarget(
+                    intersection.x,
+                    intersection.z,
+                    Engine.SNAP_THRESHOLD
+                );
+
+                let targetNodeId: string | undefined | null = null;
+
+                if (snapResult.type === "node" && snapResult.nodeId) {
+                    // Snap to existing node
+                    targetNodeId = snapResult.nodeId;
+                } else if (snapResult.type === "edge" && snapResult.edgeId) {
+                    // Split the edge and snap to the new node
+                    targetNodeId = this.transportGraphUtils.splitEdge(
+                        snapResult.edgeId,
+                        snapResult.position.x,
+                        snapResult.position.z
+                    );
+                } else {
+                    // Create new node at click position
+                    targetNodeId = this.store.addRow("streetNodes", {
+                        x: intersection.x,
+                        z: intersection.z,
+                    });
+                }
+
+                // Create edge from last node to target node
+                if (this.lastStreetNodeId && targetNodeId && this.lastStreetNodeId !== targetNodeId) {
                     this.store.addRow("streetEdges", {
                         startNodeId: this.lastStreetNodeId,
-                        endNodeId: newNodeId,
+                        endNodeId: targetNodeId,
                         width: 10,
                     });
                 }
 
-                if (newNodeId) {
-                    this.lastStreetNodeId = newNodeId;
+                // Update last node for next segment
+                if (targetNodeId) {
+                    this.lastStreetNodeId = targetNodeId;
                 }
             }
             return;
@@ -458,6 +564,7 @@ export class Engine {
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
+        this.debugRenderer.dispose();
         this.renderer.dispose();
     }
 

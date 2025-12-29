@@ -164,7 +164,7 @@ function findAllCycles(
     const halfEdgeKey = (from: string, to: string) => `${from}->${to}`;
 
     // For each half-edge that hasn't been visited, trace a cycle
-    for (const [nodeId, halfEdges] of adjacency) {
+    for (const [, halfEdges] of adjacency) {
         for (const startHalfEdge of halfEdges) {
             const key = halfEdgeKey(startHalfEdge.fromNodeId, startHalfEdge.toNodeId);
             if (visitedHalfEdges.has(key)) continue;
@@ -242,7 +242,7 @@ function traceCycle(
  * comes next in counter-clockwise order from the reverse of our incoming edge).
  */
 function findNextHalfEdge(
-    nodes: Map<string, GraphNode>,
+    _nodes: Map<string, GraphNode>,
     adjacency: Map<string, HalfEdge[]>,
     fromNodeId: string,
     toNodeId: string

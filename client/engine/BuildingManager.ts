@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { WorldsyncStore, getSortedBuildingSections } from "../../shared/WorldsyncStore";
 import { LocalStore } from "../data/createLocalStore";
 import { LightmapManager } from "./LightmapManager";
+import { TileManager } from "../spatial/TileManager";
+import { BoundingBox } from "../spatial/SpatialIndex";
 
 interface SectionData {
     sectionId: string;
@@ -29,11 +31,49 @@ export class BuildingManager {
     private nodeListenerId: string | null = null;
     private sectionListenerId: string | null = null;
     private lightmapManager: LightmapManager | null = null;
+    private tileManager: TileManager | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
         this.store = store;
         this.initialize();
+    }
+
+    public setTileManager(tileManager: TileManager): void {
+        this.tileManager = tileManager;
+        // Register existing buildings with the tile manager
+        for (const buildingId of this.buildingGroups.keys()) {
+            const bounds = this.calculateBuildingBounds(buildingId);
+            if (bounds) {
+                this.tileManager.addEntity(buildingId, "building", bounds);
+            }
+        }
+    }
+
+    /**
+     * Calculate the bounding box of a building from its nodes.
+     */
+    private calculateBuildingBounds(buildingId: string): BoundingBox | null {
+        const sections = this.getSectionsForBuilding(buildingId);
+        if (sections.length === 0) return null;
+
+        let minX = Infinity;
+        let minZ = Infinity;
+        let maxX = -Infinity;
+        let maxZ = -Infinity;
+
+        for (const section of sections) {
+            const nodes = this.getNodesForSection(section.sectionId);
+            for (const node of nodes) {
+                if (node.x < minX) minX = node.x;
+                if (node.z < minZ) minZ = node.z;
+                if (node.x > maxX) maxX = node.x;
+                if (node.z > maxZ) maxZ = node.z;
+            }
+        }
+
+        if (minX === Infinity) return null;
+        return { minX, minZ, maxX, maxZ };
     }
 
     public setLocalStore(localStore: LocalStore): void {
@@ -268,6 +308,14 @@ export class BuildingManager {
 
         this.buildingGroups.set(buildingId, buildingGroup);
         this.scene.add(buildingGroup);
+
+        // Update tile manager with building bounds
+        if (this.tileManager) {
+            const bounds = this.calculateBuildingBounds(buildingId);
+            if (bounds) {
+                this.tileManager.updateEntity(buildingId, bounds);
+            }
+        }
     }
 
     private createSectionMesh(section: SectionData, buildingId: string): THREE.Mesh | null {

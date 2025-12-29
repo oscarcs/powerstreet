@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
 import { ExtrudePolyline, Vec2 } from "../geometry/ExtrudePolyline";
+import { TileManager } from "../spatial/TileManager";
+import { BoundingBox } from "../spatial/SpatialIndex";
 
 interface EdgeData {
     id: string;
@@ -17,6 +19,7 @@ export class StreetManager {
     private edgeMeshes: Map<string, THREE.Object3D> = new Map(); // edgeId -> mesh
     private previewMesh: THREE.Mesh | null = null;
     private previewMaterial: THREE.MeshStandardMaterial;
+    private tileManager: TileManager | null = null;
 
     constructor(scene: THREE.Scene, store: WorldsyncStore) {
         this.scene = scene;
@@ -32,6 +35,53 @@ export class StreetManager {
         });
 
         this.initialize();
+    }
+
+    public setTileManager(tileManager: TileManager): void {
+        this.tileManager = tileManager;
+        // Register existing edges with the tile manager
+        this.updateTileManagerWithEdges();
+    }
+
+    /**
+     * Calculate the bounding box of a street edge.
+     */
+    private calculateEdgeBounds(edgeId: string): BoundingBox | null {
+        const edge = this.store.getRow("streetEdges", edgeId);
+        if (!edge) return null;
+
+        const startNode = this.store.getRow("streetNodes", edge.startNodeId as string);
+        const endNode = this.store.getRow("streetNodes", edge.endNodeId as string);
+        if (!startNode || !endNode) return null;
+
+        const startX = startNode.x as number;
+        const startZ = startNode.z as number;
+        const endX = endNode.x as number;
+        const endZ = endNode.z as number;
+        const width = (edge.width as number) || 5;
+        const halfWidth = width / 2;
+
+        return {
+            minX: Math.min(startX, endX) - halfWidth,
+            minZ: Math.min(startZ, endZ) - halfWidth,
+            maxX: Math.max(startX, endX) + halfWidth,
+            maxZ: Math.max(startZ, endZ) + halfWidth,
+        };
+    }
+
+    /**
+     * Update the tile manager with all current edges.
+     */
+    private updateTileManagerWithEdges(): void {
+        if (!this.tileManager) return;
+
+        const edgeIds = this.store.getRowIds("streetEdges");
+        for (const edgeId of edgeIds) {
+            const bounds = this.calculateEdgeBounds(edgeId);
+            if (bounds) {
+                this.tileManager.updateEntity(edgeId, bounds);
+            }
+        }
     }
 
     private initialize(): void {
@@ -166,6 +216,9 @@ export class StreetManager {
             // 3. Create Mesh
             this.createPolylineMesh(points, startEdge.width, startEdge.color, polylineEdges);
         }
+
+        // Update tile manager with edge bounds
+        this.updateTileManagerWithEdges();
     }
 
     private createPolylineMesh(nodeIds: string[], width: number, color: number, edgeIds: string[]): void {

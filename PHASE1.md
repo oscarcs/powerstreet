@@ -2,6 +2,59 @@
 
 This document describes the implementation plan for Phase 1 of the powerstreet project, focusing on establishing the foundational data structures that will support both rendering at scale and multiplayer sync.
 
+---
+
+## Implementation Status
+
+**Status: IMPLEMENTED** (pending review)
+
+### Completed Tasks
+
+| Task | Status | Files |
+|------|--------|-------|
+| Extend WorldsyncStore schema | ✅ Done | `shared/WorldsyncStore.ts` |
+| Implement GridIndex spatial indexing | ✅ Done | `client/spatial/GridIndex.ts`, `client/spatial/SpatialIndex.ts` |
+| Implement TileManager | ✅ Done | `client/spatial/TileManager.ts` |
+| Integrate spatial index with BuildingManager | ✅ Done | `client/engine/BuildingManager.ts` |
+| Integrate spatial index with StreetManager | ✅ Done | `client/engine/StreetManager.ts` |
+| Port block detection algorithm | ✅ Done | `shared/procgen/BlockDetection.ts` |
+| Port lot subdivision algorithm | ✅ Done | `shared/procgen/LotSubdivision.ts` |
+| Implement sync protocol in Durable Object | ✅ Done | `workers/worldsync/src/index.ts` |
+| Implement SyncClient for client-side | ✅ Done | `client/data/SyncClient.ts` |
+
+### Implementation Notes
+
+**Schema Changes:**
+- Added street node `elevation` field
+- Added street edge fields: `roadType`, `speedLimit`, `lanes`, `oneWay`, `curveType`, `curveData`
+- Added `districts`, `blocks`, and `lots` tables with full zoning/subdivision rule support
+- Added typed helper functions and interfaces for all new tables
+
+**Spatial Indexing:**
+- Grid-based index with configurable cell size (default 500m to match tile size)
+- TileManager provides tile-based organization with LOD support and dirty tracking
+- Both BuildingManager and StreetManager now track entities in the TileManager
+
+**Procgen Algorithms:**
+- Block detection uses minimal cycle traversal with rightmost-turn rule
+- Lot subdivision uses simplified perpendicular-ray approach (not full straight-skeleton)
+- Both algorithms work in local coordinates (no Turf.js dependency yet)
+
+**Sync Protocol:**
+- WebSocket-based with subscribe/delta/fullSync message types
+- Durable Object stores state with `table:rowId` key format
+- Client tracks changes via TinyBase listeners and sends deltas
+- Broadcast to other subscribed clients (excluding sender)
+
+### What's NOT Implemented Yet
+
+- Straight skeleton for proper strip generation (using simplified subdivision instead)
+- Incremental rendering updates (still rebuilds all geometry on change)
+- Actual LOD geometry simplification
+- Lock/CRDT conflict resolution for complex edits
+
+---
+
 ## Goals
 
 1. Implement graph-first street network data model with extended metadata

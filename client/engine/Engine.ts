@@ -7,6 +7,7 @@ import { BuildingManager } from "./BuildingManager";
 import { EditGizmoManager } from "./EditGizmoManager";
 import { StreetManager } from "./StreetManager";
 import { LocalStore } from "../data/createLocalStore";
+import { TileManager } from "../spatial/TileManager";
 
 export class Engine {
     private renderer: Renderer;
@@ -16,6 +17,7 @@ export class Engine {
     private buildingManager: BuildingManager;
     private streetManager: StreetManager;
     private editGizmoManager: EditGizmoManager;
+    private tileManager: TileManager;
     private store: WorldsyncStore;
     private localStore: LocalStore | null = null;
     private raycaster: THREE.Raycaster;
@@ -43,16 +45,30 @@ export class Engine {
         this.camera = new Camera(this.renderer.getAspectRatio());
         this.camera.initializeControls(this.renderer.getRenderer());
 
+        // Initialize tile manager with 500m tiles
+        this.tileManager = new TileManager({ tileSize: 500, debounceMs: 500 });
+
         this.inputManager = new InputManager(this.camera);
         this.buildingManager = new BuildingManager(this.scene, store);
         this.streetManager = new StreetManager(this.scene, store);
         this.editGizmoManager = new EditGizmoManager(this.scene, store);
+
+        // Wire up tile manager to managers
+        this.buildingManager.setTileManager(this.tileManager);
+        this.streetManager.setTileManager(this.tileManager);
 
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
 
         this.setupScene();
         this.setupEventListeners();
+    }
+
+    /**
+     * Get the tile manager for external access (e.g., debugging, UI).
+     */
+    public getTileManager(): TileManager {
+        return this.tileManager;
     }
 
     public setLocalStore(localStore: LocalStore): void {

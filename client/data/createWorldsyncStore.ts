@@ -29,11 +29,15 @@ function generateTestRoadGrid(store: WorldsyncStore): void {
 
     // Create horizontal edges (along rows)
     for (let row = 0; row < gridSize; row++) {
+        const isArterial = row % 2 === 0;
+        const streetWidth = isArterial ? 20 : 10;
+
         for (let col = 0; col < gridSize - 1; col++) {
             store.addRow("streetEdges", {
                 startNodeId: nodeIds[row][col],
                 endNodeId: nodeIds[row][col + 1],
-                width: 10,
+                width: streetWidth,
+                roadType: isArterial ? "arterial" : "local",
             });
         }
     }
@@ -41,10 +45,14 @@ function generateTestRoadGrid(store: WorldsyncStore): void {
     // Create vertical edges (along columns)
     for (let row = 0; row < gridSize - 1; row++) {
         for (let col = 0; col < gridSize; col++) {
+            const isArterial = col % 2 === 0;
+            const streetWidth = isArterial ? 20 : 10;
+
             store.addRow("streetEdges", {
                 startNodeId: nodeIds[row][col],
                 endNodeId: nodeIds[row + 1][col],
-                width: 10,
+                width: streetWidth,
+                roadType: isArterial ? "arterial" : "local",
             });
         }
     }

@@ -16,6 +16,8 @@ import {
     DetectedBlock,
     GraphNode,
     GraphEdge,
+    offsetBlockBoundary,
+    Point2D,
 } from "../../shared/procgen/BlockDetection";
 import {
     subdivideBlock,
@@ -26,9 +28,11 @@ import {
 export interface DebugRenderOptions {
     showTiles: boolean;
     showBlocks: boolean;
+    showOffsetBlocks: boolean; // Show blocks offset by street width (buildable area)
     showLots: boolean;
     tileColor: number;
     blockColor: number;
+    offsetBlockColor: number;
     lotColor: number;
     lineHeight: number; // Y offset for debug lines
 }
@@ -36,9 +40,11 @@ export interface DebugRenderOptions {
 const DEFAULT_OPTIONS: DebugRenderOptions = {
     showTiles: true,
     showBlocks: true,
+    showOffsetBlocks: true,
     showLots: true,
     tileColor: 0x00ff00, // Green for tiles
-    blockColor: 0xff00ff, // Magenta for blocks
+    blockColor: 0xff00ff, // Magenta for blocks (centerline)
+    offsetBlockColor: 0x00ffff, // Cyan for offset blocks (buildable area)
     lotColor: 0xffff00, // Yellow for lots
     lineHeight: 0.5,
 };
@@ -52,10 +58,13 @@ export class DebugRenderer {
     private debugGroup: THREE.Group;
     private tileLines: THREE.LineSegments | null = null;
     private blockLines: THREE.LineSegments | null = null;
+    private offsetBlockLines: THREE.LineSegments | null = null;
     private lotLines: THREE.LineSegments | null = null;
 
     private isVisible = false;
     private detectedBlocks: DetectedBlock[] = [];
+    private offsetBlockPolygons: (Point2D[] | null)[] = [];
+    private edges: Map<string, GraphEdge> = new Map();
     private generatedLots: GeneratedLot[] = [];
 
     private rebuildTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -165,12 +174,16 @@ export class DebugRenderer {
             this.buildTileVisualization();
         }
 
-        if (this.options.showBlocks || this.options.showLots) {
+        if (this.options.showBlocks || this.options.showOffsetBlocks || this.options.showLots) {
             this.detectAndSubdivide();
         }
 
         if (this.options.showBlocks) {
             this.buildBlockVisualization();
+        }
+
+        if (this.options.showOffsetBlocks) {
+            this.buildOffsetBlockVisualization();
         }
 
         if (this.options.showLots) {
@@ -204,6 +217,12 @@ export class DebugRenderer {
             this.blockLines.geometry.dispose();
             (this.blockLines.material as THREE.Material).dispose();
             this.blockLines = null;
+        }
+        if (this.offsetBlockLines) {
+            this.debugGroup.remove(this.offsetBlockLines);
+            this.offsetBlockLines.geometry.dispose();
+            (this.offsetBlockLines.material as THREE.Material).dispose();
+            this.offsetBlockLines = null;
         }
         if (this.lotLines) {
             this.debugGroup.remove(this.lotLines);
@@ -250,7 +269,7 @@ export class DebugRenderer {
     private detectAndSubdivide(): void {
         // Build graph from store
         const nodes = new Map<string, GraphNode>();
-        const edges = new Map<string, GraphEdge>();
+        this.edges = new Map<string, GraphEdge>();
 
         // Get all street nodes
         const nodeIds = this.store.getRowIds("streetNodes");
@@ -265,29 +284,47 @@ export class DebugRenderer {
             }
         }
 
-        // Get all street edges
+        // Get all street edges (including width)
         const edgeIds = this.store.getRowIds("streetEdges");
         for (const edgeId of edgeIds) {
             const row = this.store.getRow("streetEdges", edgeId);
             if (row.startNodeId && row.endNodeId) {
-                edges.set(edgeId, {
+                this.edges.set(edgeId, {
                     id: edgeId,
                     startNodeId: row.startNodeId as string,
                     endNodeId: row.endNodeId as string,
+                    width: (row.width as number) || 10, // Default 10 units
                 });
             }
         }
 
         // Detect blocks
-        const allBlocks = detectBlocks(nodes, edges);
+        const allBlocks = detectBlocks(nodes, this.edges);
         this.detectedBlocks = getInteriorBlocks(allBlocks);
 
         console.log(`DebugRenderer: Detected ${this.detectedBlocks.length} interior blocks`);
 
-        // Subdivide blocks into lots
+        // Compute offset polygons for each block
+        this.offsetBlockPolygons = this.detectedBlocks.map(block => {
+            const offsetPoly = offsetBlockBoundary(block, this.edges);
+            return offsetPoly;
+        });
+
+        const validOffsets = this.offsetBlockPolygons.filter(p => p !== null).length;
+        console.log(`DebugRenderer: ${validOffsets}/${this.detectedBlocks.length} blocks have valid offset polygons`);
+
+        // Subdivide blocks into lots (using offset polygons when available)
         this.generatedLots = [];
-        for (const block of this.detectedBlocks) {
-            const lots = subdivideBlock(block, DEFAULT_SUBDIVISION_RULES);
+        for (let i = 0; i < this.detectedBlocks.length; i++) {
+            const block = this.detectedBlocks[i];
+            const offsetPoly = this.offsetBlockPolygons[i];
+
+            // Use offset polygon if available, otherwise fall back to centerline
+            const blockForSubdivision: DetectedBlock = offsetPoly
+                ? { ...block, polygon: offsetPoly }
+                : block;
+
+            const lots = subdivideBlock(blockForSubdivision, DEFAULT_SUBDIVISION_RULES);
             this.generatedLots.push(...lots);
         }
 
@@ -322,6 +359,37 @@ export class DebugRenderer {
         this.blockLines = new THREE.LineSegments(geometry, material);
         this.blockLines.name = "BlockDebug";
         this.debugGroup.add(this.blockLines);
+    }
+
+    private buildOffsetBlockVisualization(): void {
+        if (this.offsetBlockPolygons.length === 0) return;
+
+        const positions: number[] = [];
+        const y = this.options.lineHeight + 0.15; // Between blocks and lots
+
+        for (const polygon of this.offsetBlockPolygons) {
+            if (!polygon) continue; // Skip degenerate blocks
+
+            for (let i = 0; i < polygon.length; i++) {
+                const current = polygon[i];
+                const next = polygon[(i + 1) % polygon.length];
+                positions.push(current.x, y, current.z, next.x, y, next.z);
+            }
+        }
+
+        if (positions.length === 0) return;
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+        const material = new THREE.LineBasicMaterial({
+            color: this.options.offsetBlockColor,
+            linewidth: 2,
+        });
+
+        this.offsetBlockLines = new THREE.LineSegments(geometry, material);
+        this.offsetBlockLines.name = "OffsetBlockDebug";
+        this.debugGroup.add(this.offsetBlockLines);
     }
 
     private buildLotVisualization(): void {

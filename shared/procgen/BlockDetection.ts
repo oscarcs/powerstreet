@@ -21,6 +21,7 @@ export interface GraphEdge {
     id: string;
     startNodeId: string;
     endNodeId: string;
+    width?: number; // Street width (for offset calculations)
 }
 
 export interface DetectedBlock {
@@ -314,4 +315,172 @@ export function getBlockCentroid(block: DetectedBlock): Point2D {
         x: sumX / block.polygon.length,
         z: sumZ / block.polygon.length,
     };
+}
+
+/**
+ * Offset a block's boundary inward by half the street width on each edge.
+ *
+ * This produces the actual buildable land area by insetting from the
+ * centerline-based block boundary.
+ *
+ * @param block The detected block (from centerline nodes)
+ * @param edges Map of edge ID to edge data (must include width)
+ * @param defaultWidth Default street width if edge has no width specified
+ * @returns Offset polygon, or null if the result is degenerate
+ */
+export function offsetBlockBoundary(
+    block: DetectedBlock,
+    edges: Map<string, GraphEdge>,
+    defaultWidth: number = 10
+): Point2D[] | null {
+    const n = block.polygon.length;
+    if (n < 3) return null;
+
+    // Determine winding direction: positive area = CCW, negative = CW
+    const originalArea = computeSignedArea(block.polygon);
+    const isCCW = originalArea > 0;
+
+    // Get width for each edge in the block boundary
+    const edgeWidths: number[] = block.edgeIds.map(edgeId => {
+        const edge = edges.get(edgeId);
+        return edge?.width ?? defaultWidth;
+    });
+
+    // For each vertex in the block polygon, we need to compute the inset point.
+    // The vertex is where two edges meet. We offset each edge inward by half its
+    // width, then find where the offset lines intersect (miter point).
+    const offsetPolygon: Point2D[] = [];
+
+    for (let i = 0; i < n; i++) {
+        const prevIdx = (i - 1 + n) % n;
+
+        // Current vertex and adjacent vertices
+        const curr = block.polygon[i];
+        const prev = block.polygon[prevIdx];
+        const next = block.polygon[(i + 1) % n];
+
+        // Edge before this vertex (prevIdx -> i) and edge after (i -> i+1)
+        // In the block polygon, edgeIds[i] connects polygon[i] to polygon[i+1]
+        const edgeBefore = edgeWidths[prevIdx]; // Edge from prev to curr
+        const edgeAfter = edgeWidths[i];        // Edge from curr to next
+
+        const offsetPoint = computeInsetCorner(
+            prev, curr, next,
+            edgeBefore / 2,
+            edgeAfter / 2,
+            isCCW
+        );
+
+        if (!offsetPoint) {
+            return null; // Degenerate geometry
+        }
+
+        offsetPolygon.push(offsetPoint);
+    }
+
+    // Check if the offset polygon is valid (same winding as original)
+    const offsetArea = computeSignedArea(offsetPolygon);
+
+    // If offset area has opposite sign or is too small, the polygon is degenerate
+    if (Math.sign(offsetArea) !== Math.sign(originalArea) || Math.abs(offsetArea) < 1) {
+        return null;
+    }
+
+    return offsetPolygon;
+}
+
+/**
+ * Compute the inset corner point where two offset edges meet.
+ *
+ * @param prev Previous vertex in polygon
+ * @param curr Current vertex (the corner)
+ * @param next Next vertex in polygon
+ * @param offsetBefore Inset distance for edge before corner
+ * @param offsetAfter Inset distance for edge after corner
+ * @param isCCW True if polygon has counter-clockwise winding
+ * @returns The miter point, or null if degenerate
+ */
+function computeInsetCorner(
+    prev: Point2D,
+    curr: Point2D,
+    next: Point2D,
+    offsetBefore: number,
+    offsetAfter: number,
+    isCCW: boolean
+): Point2D | null {
+    // Direction vectors for edges
+    const d1x = curr.x - prev.x;
+    const d1z = curr.z - prev.z;
+    const len1 = Math.sqrt(d1x * d1x + d1z * d1z);
+
+    const d2x = next.x - curr.x;
+    const d2z = next.z - curr.z;
+    const len2 = Math.sqrt(d2x * d2x + d2z * d2z);
+
+    if (len1 < 0.001 || len2 < 0.001) {
+        return null; // Degenerate edge
+    }
+
+    // Unit direction vectors
+    const u1x = d1x / len1;
+    const u1z = d1z / len1;
+    const u2x = d2x / len2;
+    const u2z = d2z / len2;
+
+    // Perpendicular normals pointing inward
+    // In X-Z plane viewed from +Y: CCW polygon has interior on LEFT of edge direction
+    // Left perpendicular of (dx, dz) is (-dz, dx)
+    // For CW winding: interior is on RIGHT, so use (dz, -dx)
+    const sign = isCCW ? -1 : 1;
+    const n1x = u1z * sign;  // For CCW: -u1z (left perp)
+    const n1z = -u1x * sign; // For CCW: u1x (left perp)
+    const n2x = u2z * sign;
+    const n2z = -u2x * sign;
+
+    // Points on the offset lines at the current vertex
+    const p1x = curr.x + n1x * offsetBefore;
+    const p1z = curr.z + n1z * offsetBefore;
+    const p2x = curr.x + n2x * offsetAfter;
+    const p2z = curr.z + n2z * offsetAfter;
+
+    // Find intersection of the two offset lines
+    // Line 1: p1 + t * u1
+    // Line 2: p2 + s * u2
+    const cross = u1x * u2z - u1z * u2x;
+
+    if (Math.abs(cross) < 0.0001) {
+        // Lines are parallel (edges are collinear)
+        // Return midpoint of the two offset points
+        return {
+            x: (p1x + p2x) / 2,
+            z: (p1z + p2z) / 2
+        };
+    }
+
+    // Solve for t: p1 + t*u1 = p2 + s*u2
+    const dx = p2x - p1x;
+    const dz = p2z - p1z;
+    const t = (dx * u2z - dz * u2x) / cross;
+
+    const miterX = p1x + t * u1x;
+    const miterZ = p1z + t * u1z;
+
+    // Clamp the miter if it extends too far (acute angle)
+    const miterDist = Math.sqrt(
+        (miterX - curr.x) * (miterX - curr.x) +
+        (miterZ - curr.z) * (miterZ - curr.z)
+    );
+    const maxOffset = Math.max(offsetBefore, offsetAfter);
+    const maxMiterDist = maxOffset * 3; // Limit miter extension
+
+    if (miterDist > maxMiterDist) {
+        // Scale back the miter point
+        const scale = maxMiterDist / miterDist;
+        return {
+            x: curr.x + (miterX - curr.x) * scale,
+            z: curr.z + (miterZ - curr.z) * scale
+        };
+    }
+
+    return { x: miterX, z: miterZ };
 }

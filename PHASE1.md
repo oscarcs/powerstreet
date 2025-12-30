@@ -23,12 +23,13 @@ This document describes Phase 1 of the powerstreet project, focusing on foundati
 | Graph integrity: Crossing detection | `client/engine/TransportGraphUtils.ts`, `Engine.ts` |
 | Graph integrity: Visual snap feedback | `client/engine/StreetManager.ts` |
 | Auto-rebuild blocks on street changes | `client/engine/DebugRenderer.ts` |
+| Multi-way intersection geometry | `client/geometry/IntersectionGeometry.ts`, `client/engine/StreetManager.ts` |
+| Block boundary offset for street widths | `shared/procgen/BlockDetection.ts`, `client/engine/DebugRenderer.ts` |
 
 ### Remaining Work
 
 | Task | Notes |
 |------|-------|
-| Multi-way intersection geometry | Streets currently overlap at intersections; need proper merged geometry |
 | Straight skeleton for proper strip generation | Using simplified perpendicular-ray subdivision instead |
 | Incremental rendering updates | Still rebuilds all geometry on change |
 | LOD geometry simplification | TileManager has LOD fields but geometry not simplified |
@@ -67,28 +68,18 @@ The street network maintains proper graph topology through automatic snapping an
 
 ---
 
-## TODO: Multi-Way Intersection Geometry
+## Block Boundary Offset (Completed)
 
-**Problem**: When multiple streets meet at a node, each street segment is rendered independently. This causes overlapping geometry at intersections, which looks incorrect and wastes triangles.
+Block detection finds enclosed faces from centerline nodes, but lot subdivision needs the actual buildable land area. The `offsetBlockBoundary()` function in `BlockDetection.ts` computes the inset polygon:
 
-**Solution**: Implement proper intersection geometry that:
-1. Detects nodes with 3+ connected edges (multi-way intersections)
-2. Calculates the intersection polygon based on street widths and angles
-3. Renders each street segment ending at the intersection boundary
-4. Fills the intersection area with a single polygon
+1. For each edge in the block, offsets inward by `width/2` using perpendicular normals
+2. At corners, computes miter points where offset edges intersect
+3. Clamps miter points to prevent excessive extension at acute angles (max 3x offset)
+4. Returns `null` for degenerate cases (inverted polygon, area < 1)
 
-**Approach**:
-```
-For each node with degree >= 3:
-  1. Get all connected edges, sorted by angle
-  2. For each pair of adjacent edges:
-     - Calculate the miter point (where street edges meet)
-     - Or use a bevel/round cap if angle is too acute
-  3. Build intersection polygon from miter points
-  4. Modify street segment geometry to end at intersection boundary
-```
+**Debug visualization**: Cyan lines show offset block boundaries; lot subdivision uses these when available.
 
-**Reference**: The ExtrudePolyline class already handles miter joins for continuous polylines. This logic can be adapted for intersection geometry.
+**Files**: `shared/procgen/BlockDetection.ts`, `client/engine/DebugRenderer.ts`
 
 ---
 
@@ -134,4 +125,5 @@ Phase 1 is complete when:
 3. ✅ Lot subdivision produces valid lots from detected blocks
 4. ✅ Debug visualization confirms algorithms working correctly
 5. ⏳ Two clients can sync edits through the Durable Object (implemented but untested)
-6. ⏳ Multi-way intersection geometry renders correctly (TODO)
+6. ✅ Multi-way intersection geometry renders correctly
+7. ✅ Block boundaries correctly account for street widths

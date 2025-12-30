@@ -61,6 +61,7 @@ export class TileManager {
     private dirtyTiles: Set<string>;
     private debounceTimers: Map<string, number>;
     private listeners: Set<(tileIds: string[]) => void>;
+    private tileCreatedListeners: Set<(tileKey: string) => void>;
 
     constructor(config: Partial<TileManagerConfig> = {}) {
         this.config = { ...DEFAULT_CONFIG, ...config };
@@ -69,6 +70,7 @@ export class TileManager {
         this.dirtyTiles = new Set();
         this.debounceTimers = new Map();
         this.listeners = new Set();
+        this.tileCreatedListeners = new Set();
     }
 
     /**
@@ -170,6 +172,11 @@ export class TileManager {
                 lastUpdateTime: Date.now(),
             };
             this.tiles.set(tileKey, tile);
+
+            // Notify listeners about new tile
+            for (const listener of this.tileCreatedListeners) {
+                listener(tileKey);
+            }
         }
         return tile;
     }
@@ -374,6 +381,20 @@ export class TileManager {
      */
     removeDirtyListener(listener: (tileIds: string[]) => void): void {
         this.listeners.delete(listener);
+    }
+
+    /**
+     * Add a listener for tile creation notifications.
+     */
+    addTileCreatedListener(listener: (tileKey: string) => void): void {
+        this.tileCreatedListeners.add(listener);
+    }
+
+    /**
+     * Remove a tile created listener.
+     */
+    removeTileCreatedListener(listener: (tileKey: string) => void): void {
+        this.tileCreatedListeners.delete(listener);
     }
 
     private notifyListeners(tileIds: string[]): void {

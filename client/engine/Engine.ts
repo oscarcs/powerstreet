@@ -10,6 +10,7 @@ import { LocalStore } from "../data/createLocalStore";
 import { TileManager } from "../spatial/TileManager";
 import { DebugRenderer, DebugRenderOptions } from "./DebugRenderer";
 import { TransportGraphUtils, STREET_LAYER_CONFIG, SnapResult } from "./TransportGraphUtils";
+import { TerrainManager } from "./TerrainManager";
 
 export class Engine {
     private renderer: Renderer;
@@ -35,7 +36,7 @@ export class Engine {
     private boundOnMouseMove: ((event: MouseEvent) => void) | null = null;
     private boundOnMouseUp: ((event: MouseEvent) => void) | null = null;
     // private lightmapManager: LightmapManager | null = null;
-    private groundMesh: THREE.Mesh | null = null;
+    private terrainManager: TerrainManager;
     private fps: number = 0;
     private frameCount: number = 0;
     private fpsUpdateTime: number = performance.now();
@@ -63,6 +64,10 @@ export class Engine {
         // Wire up tile manager to managers
         this.buildingManager.setTileManager(this.tileManager);
         this.streetManager.setTileManager(this.tileManager);
+
+        // Initialize terrain manager with per-tile terrain
+        this.terrainManager = new TerrainManager(this.scene);
+        this.terrainManager.setTileManager(this.tileManager);
 
         // Initialize debug renderer
         this.debugRenderer = new DebugRenderer(this.scene, store, this.tileManager);
@@ -108,7 +113,7 @@ export class Engine {
     public setLocalStore(localStore: LocalStore): void {
         this.localStore = localStore;
         this.buildingManager.setLocalStore(localStore);
-        
+
         this.localStore.addValueListener("currentTool", () => {
             this.lastStreetNodeId = null;
             this.streetManager.clearPreview();
@@ -395,18 +400,9 @@ export class Engine {
     }
 
     private setupScene(): void {
-        const groundGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
-        const groundMaterial = new THREE.MeshPhysicalMaterial({
-            color: 0xcccccc,
-            roughness: 0.9,
-            metalness: 0.0,
-            depthWrite: true,
-        });
-        this.groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
-        this.groundMesh.rotation.x = -Math.PI / 2;
-        this.groundMesh.position.y = 0;
-        this.groundMesh.receiveShadow = true;
-        this.scene.add(this.groundMesh);
+        // Terrain is now managed per-tile by TerrainManager
+        // Ensure some initial terrain tiles exist around the camera start position
+        this.terrainManager.ensureTerrainAroundPosition(new THREE.Vector3(0, 0, 0), 500);
 
         // Key light - main directional sun light with shadows
         const keyLight = new THREE.DirectionalLight(0xfffaf0, 2.0);
@@ -454,7 +450,7 @@ export class Engine {
         // Calculate FPS
         const currentTime = performance.now();
         this.frameCount++;
-        
+
         // Update FPS every 200ms
         if (currentTime >= this.fpsUpdateTime + 200) {
             const elapsed = currentTime - this.fpsUpdateTime;
@@ -565,6 +561,7 @@ export class Engine {
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
         this.debugRenderer.dispose();
+        this.terrainManager.dispose();
         this.renderer.dispose();
     }
 

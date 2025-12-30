@@ -146,6 +146,34 @@ const _miter: Vec2 = vec2Create();
  * // mesh.positions: Float32Array of [x, y, z] vertices (y = 0)
  * // mesh.indices: Uint32Array of triangle indices
  */
+export interface ExtrusionProfile {
+    left: Vec2;
+    right: Vec2;
+}
+
+export interface BuildOptions {
+    startProfile?: ExtrusionProfile;
+    endProfile?: ExtrusionProfile;
+}
+
+/**
+ * Extrudes a 2D polyline with a given line thickness and the desired join/cap types.
+ * Produces a triangulated mesh suitable for Three.js BufferGeometry.
+ *
+ * Input coordinates are 2D [x, y] which map to Three.js [x, z] (xz-plane at y=0).
+ *
+ * @example
+ * const polyline: Vec2[] = [[25, 25], [15, 60]];
+ * const extruder = new ExtrudePolyline({
+ *     thickness: 20,
+ *     cap: 'square',
+ *     join: 'bevel',
+ *     miterLimit: 10
+ * });
+ * const mesh = extruder.build(polyline);
+ * // mesh.positions: Float32Array of [x, y, z] vertices (y = 0)
+ * // mesh.indices: Uint32Array of triangle indices
+ */
 export class ExtrudePolyline {
     public miterLimit: number;
     public thickness: number;
@@ -176,7 +204,7 @@ export class ExtrudePolyline {
      * Input: Array of [x, y] coordinates (2D polyline)
      * Output: StrokeMesh with 3D positions (x maps to x, y maps to z, output y = 0)
      */
-    public build(points: Vec2[]): StrokeMesh {
+    public build(points: Vec2[], options: BuildOptions = {}): StrokeMesh {
         const complex: SimplicialComplex = {
             positions: [],
             cells: [],
@@ -202,7 +230,7 @@ export class ExtrudePolyline {
             const cur = points[i];
             const next = i < points.length - 1 ? points[i + 1] : null;
             const thickness = this.mapThickness(cur, i, points);
-            const amt = this._seg(complex, count, last, cur, next, thickness / 2);
+            const amt = this._seg(complex, count, last, cur, next, thickness / 2, options);
             count += amt;
         }
 
@@ -243,6 +271,7 @@ export class ExtrudePolyline {
         cur: Vec2,
         next: Vec2 | null,
         halfThick: number,
+        options: BuildOptions
     ): number {
         let count = 0;
         const cells = complex.cells;
@@ -263,14 +292,22 @@ export class ExtrudePolyline {
         if (!this._started) {
             this._started = true;
 
-            // If the end cap is type square, we can just push the verts out a bit
-            let startPoint = last;
-            if (capSquare) {
-                vec2ScaleAndAdd(_capEnd, last, _lineA, -halfThick);
-                startPoint = _capEnd;
+            if (options.startProfile) {
+                // Use explicit start profile
+                // NOTE: We assume startProfile.right is "right" relative to the line direction
+                // and startProfile.left is "left".
+                // _extrusions pushes [right, left]
+                positions.push(vec2Clone(options.startProfile.right));
+                positions.push(vec2Clone(options.startProfile.left));
+            } else {
+                // If the end cap is type square, we can just push the verts out a bit
+                let startPoint = last;
+                if (capSquare) {
+                    vec2ScaleAndAdd(_capEnd, last, _lineA, -halfThick);
+                    startPoint = _capEnd;
+                }
+                this._extrusions(positions, startPoint, this._normal, halfThick);
             }
-
-            this._extrusions(positions, startPoint, this._normal, halfThick);
         }
 
         cells.push([index + 0, index + 1, index + 2]);
@@ -280,14 +317,20 @@ export class ExtrudePolyline {
             // Reset normal to finish cap
             normal(this._normal, _lineA);
 
-            // Push square end cap out a bit
-            let endPoint = cur;
-            if (capSquare) {
-                vec2ScaleAndAdd(_capEnd, cur, _lineA, halfThick);
-                endPoint = _capEnd;
+            if (options.endProfile) {
+                // Use explicit end profile
+                positions.push(vec2Clone(options.endProfile.right));
+                positions.push(vec2Clone(options.endProfile.left));
+            } else {
+                // Push square end cap out a bit
+                let endPoint = cur;
+                if (capSquare) {
+                    vec2ScaleAndAdd(_capEnd, cur, _lineA, halfThick);
+                    endPoint = _capEnd;
+                }
+                this._extrusions(positions, endPoint, this._normal, halfThick);
             }
 
-            this._extrusions(positions, endPoint, this._normal, halfThick);
             cells.push(
                 this._lastFlip === 1
                     ? [index, index + 2, index + 3]

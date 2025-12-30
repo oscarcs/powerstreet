@@ -22,6 +22,24 @@ export const DebugPanel = ({ engine }: DebugPanelProps) => {
         return () => clearInterval(interval);
     }, [engine]);
 
+    useEffect(() => {
+        if (!debugVisible) return;
+
+        const updateStats = () => {
+            const debugRenderer = engine.getDebugRenderer();
+            setDebugStats({
+                blocks: debugRenderer.getDetectedBlocks().length,
+                lots: debugRenderer.getGeneratedLots().length,
+                tiles: engine.getTileManager().getAllTiles().length,
+            });
+        };
+
+        updateStats();
+
+        const interval = setInterval(updateStats, 500);
+        return () => clearInterval(interval);
+    }, [engine, debugVisible]);
+
     const handleSSGIToggle = () => {
         const newValue = !ssgiEnabled;
         setSsgiEnabled(newValue);
@@ -31,16 +49,6 @@ export const DebugPanel = ({ engine }: DebugPanelProps) => {
     const handleDebugToggle = () => {
         const newVisible = engine.toggleDebug();
         setDebugVisible(newVisible);
-
-        if (newVisible) {
-            // Update stats after toggle
-            const debugRenderer = engine.getDebugRenderer();
-            setDebugStats({
-                blocks: debugRenderer.getDetectedBlocks().length,
-                lots: debugRenderer.getGeneratedLots().length,
-                tiles: engine.getTileManager().getAllTiles().length,
-            });
-        }
     };
 
     const handleShowTilesToggle = () => {

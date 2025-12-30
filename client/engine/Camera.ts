@@ -23,7 +23,7 @@ export class Camera {
 
         this.controls.maxPolarAngle = Math.PI / 2;
         this.controls.minDistance = 1;
-        this.controls.maxDistance = 250;
+        this.controls.maxDistance = 500;
         this.controls.enablePan = false;
         this.camera.position.set(100, 100, 100);
         this.controls.target.set(0, 0, 0);

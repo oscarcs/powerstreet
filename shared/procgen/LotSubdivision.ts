@@ -1,12 +1,20 @@
 /**
  * Lot Subdivision Algorithm
  *
- * Subdivides a block polygon into individual lots based on subdivision rules.
- * This is a simplified implementation that creates lots perpendicular to the
- * block's street-facing edges.
+ * Subdivides strips into individual lots using perpendicular splitting rays.
+ * Based on the approach from Vanegas et al. (2012).
+ *
+ * Pipeline:
+ * 1. Generate splitting rays perpendicular to street frontage
+ * 2. Slice strip with each ray to create lot polygons
+ * 3. Track adjacency between polygons for potential merging
+ * 4. Validate lots (min area, street frontage)
+ * 5. Merge invalid lots with neighbors
  */
 
-import { DetectedBlock, Point2D } from "./BlockDetection";
+import { Point2D } from "./BlockDetection";
+import { Strip } from "./StripGeneration";
+import { slicePolygon, unionPolygons } from "./PolygonUtils";
 
 export interface SubdivisionRules {
     minLotFrontage: number; // meters, minimum lot width along street
@@ -28,300 +36,492 @@ export interface GeneratedLot {
     id: string;
     polygon: Point2D[];
     area: number;
+    streetEdgeId: string;
     frontageLength: number;
-    depth: number;
-    frontageEdgeIndex: number; // Which edge of the block this lot faces
+}
+
+interface PolygonNode {
+    id: string;
+    polygon: Point2D[];
+    adjacentIds: Set<string>;
+    isValid: boolean;
+    hasRay: boolean; // True if this polygon was created by a ray split
 }
 
 /**
- * Subdivide a block into lots.
+ * Subdivide a strip into lots using perpendicular rays.
  *
- * This simplified algorithm:
- * 1. Identifies the longest edge as the primary street frontage
- * 2. Divides the block into strips perpendicular to that edge
- * 3. Each strip becomes a lot
- *
- * @param block The detected block to subdivide
+ * @param strip The strip to subdivide
  * @param rules Subdivision rules
  * @returns Array of generated lots
  */
-export function subdivideBlock(
-    block: DetectedBlock,
-    rules: SubdivisionRules = DEFAULT_SUBDIVISION_RULES
-): GeneratedLot[] {
-    const polygon = block.polygon;
-    if (polygon.length < 3) return [];
-
-    // Find the longest edge (likely the main street frontage)
-    const { edgeIndex, edgeStart, edgeEnd, edgeLength } = findLongestEdge(polygon);
-
-    // Calculate lot count based on frontage rules
-    const numLots = Math.max(1, Math.floor(edgeLength / rules.targetLotWidth));
-    const actualLotWidth = edgeLength / numLots;
-
-    // Skip if lots would be too small
-    if (actualLotWidth < rules.minLotFrontage) {
-        // Return the entire block as one lot
+export function subdivideStrip(strip: Strip, rules: SubdivisionRules): GeneratedLot[] {
+    if (strip.polygon.length < 3 || strip.area < rules.minLotArea) {
+        // Strip is too small, return as single lot
         return [
             {
-                id: `${block.id}_lot_0`,
-                polygon: [...polygon],
-                area: Math.abs(block.area),
-                frontageLength: edgeLength,
-                depth: calculateBlockDepth(polygon, edgeStart, edgeEnd),
-                frontageEdgeIndex: edgeIndex,
+                id: `${strip.id}_lot_0`,
+                polygon: strip.polygon,
+                area: strip.area,
+                streetEdgeId: strip.streetEdgeId,
+                frontageLength: edgeLength(strip.streetEdgeSegment),
             },
         ];
     }
 
-    // Generate lots by dividing the block perpendicular to the frontage edge
-    const lots: GeneratedLot[] = [];
-    const edgeDir = normalize({ x: edgeEnd.x - edgeStart.x, z: edgeEnd.z - edgeStart.z });
-    const perpDir = { x: -edgeDir.z, z: edgeDir.x }; // Perpendicular direction (pointing inward)
+    // Step 1: Generate splitting rays
+    const rays = generateSplittingRays(strip, rules);
 
-    // Determine if perpendicular direction points into the block
-    const blockCenter = getPolygonCentroid(polygon);
-    const testPoint = {
-        x: (edgeStart.x + edgeEnd.x) / 2 + perpDir.x * 0.1,
-        z: (edgeStart.z + edgeEnd.z) / 2 + perpDir.z * 0.1,
-    };
-
-    // If test point is farther from center, flip the direction
-    const distToCenter = distance(testPoint, blockCenter);
-    const distFromEdge = distance(
-        { x: (edgeStart.x + edgeEnd.x) / 2, z: (edgeStart.z + edgeEnd.z) / 2 },
-        blockCenter
-    );
-    if (distToCenter > distFromEdge) {
-        perpDir.x = -perpDir.x;
-        perpDir.z = -perpDir.z;
+    if (rays.length === 0) {
+        // No rays needed, return strip as single lot
+        return [
+            {
+                id: `${strip.id}_lot_0`,
+                polygon: strip.polygon,
+                area: strip.area,
+                streetEdgeId: strip.streetEdgeId,
+                frontageLength: edgeLength(strip.streetEdgeSegment),
+            },
+        ];
     }
 
-    // Calculate depth (distance from frontage to back of block)
-    const depth = Math.min(calculateBlockDepth(polygon, edgeStart, edgeEnd), rules.maxLotDepth);
+    // Step 2: Split strip with rays and track adjacency
+    const nodes = splitWithRays(strip, rays);
 
-    for (let i = 0; i < numLots; i++) {
-        // Calculate corners of this lot
-        const t0 = i / numLots;
-        const t1 = (i + 1) / numLots;
+    // Step 3: Validate and mark invalid polygons
+    for (const node of nodes.values()) {
+        node.isValid = validatePolygon(node.polygon, strip.streetEdgeSegment, rules);
+    }
 
-        const frontLeft = {
-            x: edgeStart.x + edgeDir.x * edgeLength * t0,
-            z: edgeStart.z + edgeDir.z * edgeLength * t0,
-        };
-        const frontRight = {
-            x: edgeStart.x + edgeDir.x * edgeLength * t1,
-            z: edgeStart.z + edgeDir.z * edgeLength * t1,
-        };
-        const backLeft = {
-            x: frontLeft.x + perpDir.x * depth,
-            z: frontLeft.z + perpDir.z * depth,
-        };
-        const backRight = {
-            x: frontRight.x + perpDir.x * depth,
-            z: frontRight.z + perpDir.z * depth,
-        };
+    // Step 4: Merge invalid polygons with neighbors
+    const mergedNodes = mergeInvalidPolygons(nodes, rules);
 
-        // Clip lot polygon to block boundary
-        const lotPolygon = clipToBlock([frontLeft, frontRight, backRight, backLeft], polygon);
+    // Step 5: Convert to lots
+    const lots: GeneratedLot[] = [];
+    let lotIndex = 0;
 
-        if (lotPolygon.length >= 3) {
-            const lotArea = Math.abs(computePolygonArea(lotPolygon));
+    for (const node of mergedNodes.values()) {
+        if (node.polygon.length < 3) continue;
 
-            // Only include lots meeting minimum area
-            if (lotArea >= rules.minLotArea) {
-                lots.push({
-                    id: `${block.id}_lot_${i}`,
-                    polygon: lotPolygon,
-                    area: lotArea,
-                    frontageLength: actualLotWidth,
-                    depth: depth,
-                    frontageEdgeIndex: edgeIndex,
-                });
-            }
-        }
+        const area = computePolygonArea(node.polygon);
+        if (area < 1) continue; // Skip degenerate polygons
+
+        // Calculate frontage length
+        const frontage = calculateFrontageLength(node.polygon, strip.streetEdgeSegment);
+
+        lots.push({
+            id: `${strip.id}_lot_${lotIndex++}`,
+            polygon: node.polygon,
+            area,
+            streetEdgeId: strip.streetEdgeId,
+            frontageLength: frontage,
+        });
     }
 
     return lots;
 }
 
 /**
- * Find the longest edge of a polygon.
+ * Generate perpendicular splitting rays along the street frontage.
  */
-function findLongestEdge(polygon: Point2D[]): {
-    edgeIndex: number;
-    edgeStart: Point2D;
-    edgeEnd: Point2D;
-    edgeLength: number;
-} {
-    let maxLength = 0;
-    let maxIndex = 0;
+function generateSplittingRays(
+    strip: Strip,
+    rules: SubdivisionRules
+): Array<[Point2D, Point2D]> {
+    const [frontStart, frontEnd] = strip.streetEdgeSegment;
+    const frontageLength = edgeLength(strip.streetEdgeSegment);
 
-    for (let i = 0; i < polygon.length; i++) {
-        const j = (i + 1) % polygon.length;
-        const len = distance(polygon[i], polygon[j]);
-        if (len > maxLength) {
-            maxLength = len;
-            maxIndex = i;
-        }
+    // Calculate number of lots
+    const numLots = Math.max(1, Math.round(frontageLength / rules.targetLotWidth));
+    const actualLotWidth = frontageLength / numLots;
+
+    // If we only need one lot, no rays needed
+    if (numLots <= 1 || actualLotWidth < rules.minLotFrontage) {
+        return [];
     }
 
-    return {
-        edgeIndex: maxIndex,
-        edgeStart: polygon[maxIndex],
-        edgeEnd: polygon[(maxIndex + 1) % polygon.length],
-        edgeLength: maxLength,
-    };
+    // Direction along frontage
+    const frontDir = normalize({
+        x: frontEnd.x - frontStart.x,
+        z: frontEnd.z - frontStart.z,
+    });
+
+    // Perpendicular direction (into the strip)
+    // Check which perpendicular direction points into the strip
+    const perpDir = getInwardPerpendicular(frontDir, strip.polygon, frontStart, frontEnd);
+
+    // Generate rays at lot boundaries
+    const rays: Array<[Point2D, Point2D]> = [];
+    const maxRayLength = calculateMaxRayLength(strip.polygon);
+
+    for (let i = 1; i < numLots; i++) {
+        const t = i / numLots;
+
+        // Add slight randomization (±10% of lot width)
+        const jitter = (Math.random() - 0.5) * 0.2 * actualLotWidth;
+        const adjustedT = Math.max(0.05, Math.min(0.95, t + jitter / frontageLength));
+
+        // Point on frontage
+        const rayStart: Point2D = {
+            x: frontStart.x + frontDir.x * frontageLength * adjustedT,
+            z: frontStart.z + frontDir.z * frontageLength * adjustedT,
+        };
+
+        // Extend ray into the strip
+        const rayEnd: Point2D = {
+            x: rayStart.x + perpDir.x * maxRayLength,
+            z: rayStart.z + perpDir.z * maxRayLength,
+        };
+
+        // Extend slightly beyond start as well (to ensure clean cut)
+        const extendedStart: Point2D = {
+            x: rayStart.x - perpDir.x * 1,
+            z: rayStart.z - perpDir.z * 1,
+        };
+
+        rays.push([extendedStart, rayEnd]);
+    }
+
+    return rays;
 }
 
 /**
- * Calculate the depth of a block perpendicular to a given edge.
+ * Split a strip polygon with multiple rays, tracking adjacency.
  */
-function calculateBlockDepth(polygon: Point2D[], edgeStart: Point2D, edgeEnd: Point2D): number {
-    const edgeDir = normalize({ x: edgeEnd.x - edgeStart.x, z: edgeEnd.z - edgeStart.z });
-    const perpDir = { x: -edgeDir.z, z: edgeDir.x };
+function splitWithRays(
+    strip: Strip,
+    rays: Array<[Point2D, Point2D]>
+): Map<string, PolygonNode> {
+    const nodes = new Map<string, PolygonNode>();
+    let nodeCounter = 0;
 
-    let maxDist = 0;
-    const edgeMid = { x: (edgeStart.x + edgeEnd.x) / 2, z: (edgeStart.z + edgeEnd.z) / 2 };
+    // Start with the strip as a single polygon
+    let currentPolygons: Point2D[][] = [strip.polygon];
 
-    for (const point of polygon) {
-        const dx = point.x - edgeMid.x;
-        const dz = point.z - edgeMid.z;
-        const dist = Math.abs(dx * perpDir.x + dz * perpDir.z);
-        if (dist > maxDist) {
-            maxDist = dist;
+    // Apply each ray
+    for (const ray of rays) {
+        const newPolygons: Point2D[][] = [];
+
+        for (const polygon of currentPolygons) {
+            const sliceResult = slicePolygon(polygon, ray[0], ray[1]);
+            newPolygons.push(...sliceResult);
         }
+
+        currentPolygons = newPolygons;
     }
 
-    return maxDist;
-}
+    // Convert to nodes
+    for (const polygon of currentPolygons) {
+        if (polygon.length < 3) continue;
 
-/**
- * Clip a rectangular lot to fit within a block boundary.
- * This is a simplified clipping that returns the intersection.
- */
-function clipToBlock(lot: Point2D[], block: Point2D[]): Point2D[] {
-    // For simplicity, we use the Sutherland-Hodgman algorithm for convex clipping
-    // This works well for typical block shapes
+        const id = `node_${nodeCounter++}`;
+        nodes.set(id, {
+            id,
+            polygon,
+            adjacentIds: new Set(),
+            isValid: false,
+            hasRay: true,
+        });
+    }
 
-    let outputList = [...lot];
-
-    for (let i = 0; i < block.length; i++) {
-        if (outputList.length === 0) break;
-
-        const inputList = [...outputList];
-        outputList = [];
-
-        const edgeStart = block[i];
-        const edgeEnd = block[(i + 1) % block.length];
-
-        for (let j = 0; j < inputList.length; j++) {
-            const current = inputList[j];
-            const next = inputList[(j + 1) % inputList.length];
-
-            const currentInside = isPointLeftOfLine(current, edgeStart, edgeEnd);
-            const nextInside = isPointLeftOfLine(next, edgeStart, edgeEnd);
-
-            if (currentInside) {
-                if (nextInside) {
-                    outputList.push(next);
-                } else {
-                    const intersection = lineIntersection(current, next, edgeStart, edgeEnd);
-                    if (intersection) outputList.push(intersection);
-                }
-            } else if (nextInside) {
-                const intersection = lineIntersection(current, next, edgeStart, edgeEnd);
-                if (intersection) outputList.push(intersection);
-                outputList.push(next);
+    // Build adjacency graph
+    const nodeArray = Array.from(nodes.values());
+    for (let i = 0; i < nodeArray.length; i++) {
+        for (let j = i + 1; j < nodeArray.length; j++) {
+            const sharedLength = calculateSharedEdgeLength(
+                nodeArray[i].polygon,
+                nodeArray[j].polygon
+            );
+            if (sharedLength > 0.5) {
+                nodeArray[i].adjacentIds.add(nodeArray[j].id);
+                nodeArray[j].adjacentIds.add(nodeArray[i].id);
             }
         }
     }
 
-    return outputList;
+    return nodes;
 }
 
 /**
- * Check if a point is on the left side of a line (for CCW polygon).
+ * Validate a polygon based on area and street frontage.
  */
-function isPointLeftOfLine(point: Point2D, lineStart: Point2D, lineEnd: Point2D): boolean {
-    return (
-        (lineEnd.x - lineStart.x) * (point.z - lineStart.z) -
-            (lineEnd.z - lineStart.z) * (point.x - lineStart.x) >=
-        0
-    );
+function validatePolygon(
+    polygon: Point2D[],
+    streetEdge: [Point2D, Point2D],
+    rules: SubdivisionRules
+): boolean {
+    const area = computePolygonArea(polygon);
+    if (area < rules.minLotArea) return false;
+
+    const frontage = calculateFrontageLength(polygon, streetEdge);
+    if (frontage < rules.minLotFrontage) return false;
+
+    return true;
 }
 
 /**
- * Find intersection point of two line segments.
+ * Calculate the frontage length (portion of polygon that touches street edge).
  */
-function lineIntersection(
-    p1: Point2D,
-    p2: Point2D,
-    p3: Point2D,
-    p4: Point2D
-): Point2D | null {
-    const d1x = p2.x - p1.x;
-    const d1z = p2.z - p1.z;
-    const d2x = p4.x - p3.x;
-    const d2z = p4.z - p3.z;
+function calculateFrontageLength(polygon: Point2D[], streetEdge: [Point2D, Point2D]): number {
+    const tolerance = 1.0; // Distance tolerance for edge matching
+    let totalFrontage = 0;
 
-    const cross = d1x * d2z - d1z * d2x;
-    if (Math.abs(cross) < 1e-10) return null; // Parallel lines
+    for (let i = 0; i < polygon.length; i++) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % polygon.length];
 
-    const t = ((p3.x - p1.x) * d2z - (p3.z - p1.z) * d2x) / cross;
+        // Check if both endpoints are close to the street edge line
+        const d1 = pointToLineDistance(p1, streetEdge[0], streetEdge[1]);
+        const d2 = pointToLineDistance(p2, streetEdge[0], streetEdge[1]);
 
-    return {
-        x: p1.x + t * d1x,
-        z: p1.z + t * d1z,
-    };
+        if (d1 < tolerance && d2 < tolerance) {
+            // This edge is along the street frontage
+            totalFrontage += edgeLength([p1, p2]);
+        }
+    }
+
+    return totalFrontage;
 }
 
 /**
- * Compute signed area of a polygon.
+ * Merge invalid polygons with their neighbors.
  */
+function mergeInvalidPolygons(
+    nodes: Map<string, PolygonNode>,
+    rules: SubdivisionRules,
+    maxIterations: number = 10
+): Map<string, PolygonNode> {
+    let iteration = 0;
+
+    while (iteration < maxIterations) {
+        iteration++;
+        let merged = false;
+
+        // Find an invalid node
+        for (const node of nodes.values()) {
+            if (node.isValid) continue;
+
+            // Find the best neighbor to merge with
+            let bestNeighborId: string | null = null;
+            let bestSharedLength = 0;
+
+            for (const neighborId of node.adjacentIds) {
+                const neighbor = nodes.get(neighborId);
+                if (!neighbor) continue;
+
+                const sharedLength = calculateSharedEdgeLength(node.polygon, neighbor.polygon);
+                if (sharedLength > bestSharedLength) {
+                    bestSharedLength = sharedLength;
+                    bestNeighborId = neighborId;
+                }
+            }
+
+            if (!bestNeighborId) continue;
+
+            const neighbor = nodes.get(bestNeighborId)!;
+
+            // Merge the two polygons
+            const mergedPolygon = unionPolygons(node.polygon, neighbor.polygon);
+            if (!mergedPolygon || mergedPolygon.length < 3) continue;
+
+            // Update neighbor with merged polygon
+            neighbor.polygon = mergedPolygon;
+            neighbor.isValid = validatePolygon(
+                mergedPolygon,
+                [
+                    { x: 0, z: 0 },
+                    { x: 1, z: 0 },
+                ], // Placeholder - ideally pass street edge
+                rules
+            );
+
+            // Transfer adjacency
+            for (const adjId of node.adjacentIds) {
+                if (adjId !== bestNeighborId) {
+                    neighbor.adjacentIds.add(adjId);
+                    const adjNode = nodes.get(adjId);
+                    if (adjNode) {
+                        adjNode.adjacentIds.delete(node.id);
+                        adjNode.adjacentIds.add(bestNeighborId);
+                    }
+                }
+            }
+
+            // Remove the merged node
+            nodes.delete(node.id);
+            merged = true;
+            break;
+        }
+
+        if (!merged) break;
+    }
+
+    return nodes;
+}
+
+/**
+ * Calculate the length of shared edge between two polygons.
+ */
+function calculateSharedEdgeLength(poly1: Point2D[], poly2: Point2D[]): number {
+    const tolerance = 0.5;
+    let totalShared = 0;
+
+    for (let i = 0; i < poly1.length; i++) {
+        const a1 = poly1[i];
+        const a2 = poly1[(i + 1) % poly1.length];
+
+        for (let j = 0; j < poly2.length; j++) {
+            const b1 = poly2[j];
+            const b2 = poly2[(j + 1) % poly2.length];
+
+            // Check if edges overlap
+            const overlap = calculateEdgeOverlap(a1, a2, b1, b2, tolerance);
+            totalShared += overlap;
+        }
+    }
+
+    return totalShared;
+}
+
+/**
+ * Calculate the overlap length between two edges.
+ */
+function calculateEdgeOverlap(
+    a1: Point2D,
+    a2: Point2D,
+    b1: Point2D,
+    b2: Point2D,
+    tolerance: number
+): number {
+    // Check if edges are approximately collinear
+    const d1 = pointToLineDistance(b1, a1, a2);
+    const d2 = pointToLineDistance(b2, a1, a2);
+
+    if (d1 > tolerance || d2 > tolerance) {
+        return 0;
+    }
+
+    // Project onto line direction
+    const dir = normalize({ x: a2.x - a1.x, z: a2.z - a1.z });
+    const lenA = edgeLength([a1, a2]);
+    if (lenA < 0.01) return 0;
+
+    const projB1 = dot(dir, { x: b1.x - a1.x, z: b1.z - a1.z });
+    const projB2 = dot(dir, { x: b2.x - a1.x, z: b2.z - a1.z });
+
+    const minB = Math.min(projB1, projB2);
+    const maxB = Math.max(projB1, projB2);
+
+    const overlapStart = Math.max(0, minB);
+    const overlapEnd = Math.min(lenA, maxB);
+
+    return Math.max(0, overlapEnd - overlapStart);
+}
+
+// ============ Geometry Utilities ============
+
+function getInwardPerpendicular(
+    frontDir: Point2D,
+    polygon: Point2D[],
+    frontStart: Point2D,
+    frontEnd: Point2D
+): Point2D {
+    // Two perpendicular options
+    const perp1 = { x: -frontDir.z, z: frontDir.x };
+    const perp2 = { x: frontDir.z, z: -frontDir.x };
+
+    // Test point along frontage midpoint
+    const mid = midpoint(frontStart, frontEnd);
+
+    const testPoint = { x: mid.x + perp1.x * 0.1, z: mid.z + perp1.z * 0.1 };
+
+    // Return the perpendicular that points into the polygon
+    return pointInPolygon(testPoint, polygon) ? perp1 : perp2;
+}
+
+function calculateMaxRayLength(polygon: Point2D[]): number {
+    // Calculate polygon extent
+    let minX = Infinity,
+        maxX = -Infinity;
+    let minZ = Infinity,
+        maxZ = -Infinity;
+
+    for (const p of polygon) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minZ = Math.min(minZ, p.z);
+        maxZ = Math.max(maxZ, p.z);
+    }
+
+    return Math.sqrt((maxX - minX) ** 2 + (maxZ - minZ) ** 2) * 1.5;
+}
+
 function computePolygonArea(polygon: Point2D[]): number {
     if (polygon.length < 3) return 0;
-
     let area = 0;
     for (let i = 0; i < polygon.length; i++) {
         const j = (i + 1) % polygon.length;
         area += polygon[i].x * polygon[j].z;
         area -= polygon[j].x * polygon[i].z;
     }
-
-    return area / 2;
+    return Math.abs(area / 2);
 }
 
-/**
- * Get centroid of a polygon.
- */
-function getPolygonCentroid(polygon: Point2D[]): Point2D {
-    let sumX = 0;
-    let sumZ = 0;
-    for (const p of polygon) {
-        sumX += p.x;
-        sumZ += p.z;
-    }
-    return {
-        x: sumX / polygon.length,
-        z: sumZ / polygon.length,
-    };
+function edgeLength(edge: [Point2D, Point2D]): number {
+    return distance(edge[0], edge[1]);
 }
 
-/**
- * Calculate distance between two points.
- */
 function distance(a: Point2D, b: Point2D): number {
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     return Math.sqrt(dx * dx + dz * dz);
 }
 
-/**
- * Normalize a vector.
- */
+function midpoint(a: Point2D, b: Point2D): Point2D {
+    return { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+}
+
 function normalize(v: Point2D): Point2D {
     const len = Math.sqrt(v.x * v.x + v.z * v.z);
     if (len === 0) return { x: 0, z: 0 };
     return { x: v.x / len, z: v.z / len };
+}
+
+function dot(a: Point2D, b: Point2D): number {
+    return a.x * b.x + a.z * b.z;
+}
+
+function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x,
+            zi = polygon[i].z;
+        const xj = polygon[j].x,
+            zj = polygon[j].z;
+
+        if (zi > point.z !== zj > point.z && point.x < ((xj - xi) * (point.z - zi)) / (zj - zi) + xi) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+function pointToLineDistance(point: Point2D, lineStart: Point2D, lineEnd: Point2D): number {
+    const dx = lineEnd.x - lineStart.x;
+    const dz = lineEnd.z - lineStart.z;
+    const len = Math.sqrt(dx * dx + dz * dz);
+
+    if (len === 0) return distance(point, lineStart);
+
+    const t = Math.max(
+        0,
+        Math.min(1, ((point.x - lineStart.x) * dx + (point.z - lineStart.z) * dz) / (len * len))
+    );
+
+    const projection = {
+        x: lineStart.x + t * dx,
+        z: lineStart.z + t * dz,
+    };
+
+    return distance(point, projection);
 }

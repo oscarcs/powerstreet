@@ -4,35 +4,28 @@
  * Renders:
  * - Tile boundaries from TileManager
  * - Detected blocks from street graph
+ * - Strips from straight skeleton
  * - Subdivided lots within blocks
  */
 
 import * as THREE from "three";
 import { TileManager } from "../spatial/TileManager";
+import { BlockManager } from "./BlockManager";
 import { WorldsyncStore } from "../../shared/WorldsyncStore";
-import {
-    detectBlocks,
-    getInteriorBlocks,
-    DetectedBlock,
-    GraphNode,
-    GraphEdge,
-    offsetBlockBoundary,
-    Point2D,
-} from "../../shared/procgen/BlockDetection";
-import {
-    subdivideBlock,
-    GeneratedLot,
-    DEFAULT_SUBDIVISION_RULES,
-} from "../../shared/procgen/LotSubdivision";
+import { DetectedBlock } from "../../shared/procgen/BlockDetection";
+import { Strip } from "../../shared/procgen/StripGeneration";
+import { GeneratedLot } from "../../shared/procgen/LotSubdivision";
 
 export interface DebugRenderOptions {
     showTiles: boolean;
     showBlocks: boolean;
     showOffsetBlocks: boolean; // Show blocks offset by street width (buildable area)
+    showStrips: boolean; // Show strips from straight skeleton
     showLots: boolean;
     tileColor: number;
     blockColor: number;
     offsetBlockColor: number;
+    stripColor: number;
     lotColor: number;
     lineHeight: number; // Y offset for debug lines
 }
@@ -41,10 +34,12 @@ const DEFAULT_OPTIONS: DebugRenderOptions = {
     showTiles: true,
     showBlocks: true,
     showOffsetBlocks: true,
+    showStrips: true,
     showLots: true,
     tileColor: 0x00ff00, // Green for tiles
     blockColor: 0xff00ff, // Magenta for blocks (centerline)
     offsetBlockColor: 0x00ffff, // Cyan for offset blocks (buildable area)
+    stripColor: 0xff8800, // Orange for strips
     lotColor: 0xffff00, // Yellow for lots
     lineHeight: 0.5,
 };
@@ -52,6 +47,7 @@ const DEFAULT_OPTIONS: DebugRenderOptions = {
 export class DebugRenderer {
     private scene: THREE.Scene;
     private store: WorldsyncStore;
+    private blockManager: BlockManager;
     private tileManager: TileManager;
     private options: DebugRenderOptions;
 
@@ -59,25 +55,23 @@ export class DebugRenderer {
     private tileLines: THREE.LineSegments | null = null;
     private blockLines: THREE.LineSegments | null = null;
     private offsetBlockLines: THREE.LineSegments | null = null;
+    private stripLines: THREE.LineSegments | null = null;
     private lotLines: THREE.LineSegments | null = null;
 
     private isVisible = false;
-    private detectedBlocks: DetectedBlock[] = [];
-    private offsetBlockPolygons: (Point2D[] | null)[] = [];
-    private edges: Map<string, GraphEdge> = new Map();
-    private generatedLots: GeneratedLot[] = [];
-
     private rebuildTimeout: ReturnType<typeof setTimeout> | null = null;
     private static readonly REBUILD_DEBOUNCE_MS = 300;
 
     constructor(
         scene: THREE.Scene,
         store: WorldsyncStore,
+        blockManager: BlockManager,
         tileManager: TileManager,
         options: Partial<DebugRenderOptions> = {}
     ) {
         this.scene = scene;
         this.store = store;
+        this.blockManager = blockManager;
         this.tileManager = tileManager;
         this.options = { ...DEFAULT_OPTIONS, ...options };
 
@@ -93,7 +87,6 @@ export class DebugRenderer {
      * Set up listeners for street graph changes.
      */
     private setupStoreListeners(): void {
-        // Listen for node/edge additions, deletions, and updates
         this.store.addRowListener("streetNodes", null, () => this.scheduleRebuild());
         this.store.addRowListener("streetEdges", null, () => this.scheduleRebuild());
         this.store.addCellListener("streetNodes", null, null, () => this.scheduleRebuild());
@@ -106,7 +99,6 @@ export class DebugRenderer {
     private scheduleRebuild(): void {
         if (!this.isVisible || !this.debugGroup.visible) return;
 
-        // Debounce rebuilds to avoid excessive recalculation during rapid edits
         if (this.rebuildTimeout) {
             clearTimeout(this.rebuildTimeout);
         }
@@ -168,14 +160,13 @@ export class DebugRenderer {
      * Rebuild all debug visualizations.
      */
     rebuild(): void {
+        // Ensure BlockManager has latest data
+        this.blockManager.forceRebuild();
+
         this.clearDebugObjects();
 
         if (this.options.showTiles) {
             this.buildTileVisualization();
-        }
-
-        if (this.options.showBlocks || this.options.showOffsetBlocks || this.options.showLots) {
-            this.detectAndSubdivide();
         }
 
         if (this.options.showBlocks) {
@@ -184,6 +175,10 @@ export class DebugRenderer {
 
         if (this.options.showOffsetBlocks) {
             this.buildOffsetBlockVisualization();
+        }
+
+        if (this.options.showStrips) {
+            this.buildStripVisualization();
         }
 
         if (this.options.showLots) {
@@ -195,14 +190,21 @@ export class DebugRenderer {
      * Get detected blocks (for external use).
      */
     getDetectedBlocks(): DetectedBlock[] {
-        return this.detectedBlocks;
+        return this.blockManager.getBlocks();
+    }
+
+    /**
+     * Get generated strips (for external use).
+     */
+    getStrips(): Strip[] {
+        return this.blockManager.getStrips();
     }
 
     /**
      * Get generated lots (for external use).
      */
     getGeneratedLots(): GeneratedLot[] {
-        return this.generatedLots;
+        return this.blockManager.getLots();
     }
 
     private clearDebugObjects(): void {
@@ -223,6 +225,12 @@ export class DebugRenderer {
             this.offsetBlockLines.geometry.dispose();
             (this.offsetBlockLines.material as THREE.Material).dispose();
             this.offsetBlockLines = null;
+        }
+        if (this.stripLines) {
+            this.debugGroup.remove(this.stripLines);
+            this.stripLines.geometry.dispose();
+            (this.stripLines.material as THREE.Material).dispose();
+            this.stripLines = null;
         }
         if (this.lotLines) {
             this.debugGroup.remove(this.lotLines);
@@ -266,78 +274,14 @@ export class DebugRenderer {
         this.debugGroup.add(this.tileLines);
     }
 
-    private detectAndSubdivide(): void {
-        // Build graph from store
-        const nodes = new Map<string, GraphNode>();
-        this.edges = new Map<string, GraphEdge>();
-
-        // Get all street nodes
-        const nodeIds = this.store.getRowIds("streetNodes");
-        for (const nodeId of nodeIds) {
-            const row = this.store.getRow("streetNodes", nodeId);
-            if (row.x !== undefined && row.z !== undefined) {
-                nodes.set(nodeId, {
-                    id: nodeId,
-                    x: row.x as number,
-                    z: row.z as number,
-                });
-            }
-        }
-
-        // Get all street edges (including width)
-        const edgeIds = this.store.getRowIds("streetEdges");
-        for (const edgeId of edgeIds) {
-            const row = this.store.getRow("streetEdges", edgeId);
-            if (row.startNodeId && row.endNodeId) {
-                this.edges.set(edgeId, {
-                    id: edgeId,
-                    startNodeId: row.startNodeId as string,
-                    endNodeId: row.endNodeId as string,
-                    width: (row.width as number) || 10, // Default 10 units
-                });
-            }
-        }
-
-        // Detect blocks
-        const allBlocks = detectBlocks(nodes, this.edges);
-        this.detectedBlocks = getInteriorBlocks(allBlocks);
-
-        console.log(`DebugRenderer: Detected ${this.detectedBlocks.length} interior blocks`);
-
-        // Compute offset polygons for each block
-        this.offsetBlockPolygons = this.detectedBlocks.map(block => {
-            const offsetPoly = offsetBlockBoundary(block, this.edges);
-            return offsetPoly;
-        });
-
-        const validOffsets = this.offsetBlockPolygons.filter(p => p !== null).length;
-        console.log(`DebugRenderer: ${validOffsets}/${this.detectedBlocks.length} blocks have valid offset polygons`);
-
-        // Subdivide blocks into lots (using offset polygons when available)
-        this.generatedLots = [];
-        for (let i = 0; i < this.detectedBlocks.length; i++) {
-            const block = this.detectedBlocks[i];
-            const offsetPoly = this.offsetBlockPolygons[i];
-
-            // Use offset polygon if available, otherwise fall back to centerline
-            const blockForSubdivision: DetectedBlock = offsetPoly
-                ? { ...block, polygon: offsetPoly }
-                : block;
-
-            const lots = subdivideBlock(blockForSubdivision, DEFAULT_SUBDIVISION_RULES);
-            this.generatedLots.push(...lots);
-        }
-
-        console.log(`DebugRenderer: Generated ${this.generatedLots.length} lots`);
-    }
-
     private buildBlockVisualization(): void {
-        if (this.detectedBlocks.length === 0) return;
+        const blocks = this.blockManager.getBlocks();
+        if (blocks.length === 0) return;
 
         const positions: number[] = [];
         const y = this.options.lineHeight + 0.1; // Slightly above tiles
 
-        for (const block of this.detectedBlocks) {
+        for (const block of blocks) {
             const polygon = block.polygon;
             for (let i = 0; i < polygon.length; i++) {
                 const current = polygon[i];
@@ -362,12 +306,13 @@ export class DebugRenderer {
     }
 
     private buildOffsetBlockVisualization(): void {
-        if (this.offsetBlockPolygons.length === 0) return;
+        const offsetPolygons = this.blockManager.getOffsetPolygons();
+        if (offsetPolygons.length === 0) return;
 
         const positions: number[] = [];
-        const y = this.options.lineHeight + 0.15; // Between blocks and lots
+        const y = this.options.lineHeight + 0.15; // Between blocks and strips
 
-        for (const polygon of this.offsetBlockPolygons) {
+        for (const polygon of offsetPolygons) {
             if (!polygon) continue; // Skip degenerate blocks
 
             for (let i = 0; i < polygon.length; i++) {
@@ -392,13 +337,45 @@ export class DebugRenderer {
         this.debugGroup.add(this.offsetBlockLines);
     }
 
-    private buildLotVisualization(): void {
-        if (this.generatedLots.length === 0) return;
+    private buildStripVisualization(): void {
+        const strips = this.blockManager.getStrips();
+        if (strips.length === 0) return;
 
         const positions: number[] = [];
-        const y = this.options.lineHeight + 0.2; // Above blocks
+        const y = this.options.lineHeight + 0.2; // Between offset blocks and lots
 
-        for (const lot of this.generatedLots) {
+        for (const strip of strips) {
+            const polygon = strip.polygon;
+            for (let i = 0; i < polygon.length; i++) {
+                const current = polygon[i];
+                const next = polygon[(i + 1) % polygon.length];
+                positions.push(current.x, y, current.z, next.x, y, next.z);
+            }
+        }
+
+        if (positions.length === 0) return;
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+        const material = new THREE.LineBasicMaterial({
+            color: this.options.stripColor,
+            linewidth: 2,
+        });
+
+        this.stripLines = new THREE.LineSegments(geometry, material);
+        this.stripLines.name = "StripDebug";
+        this.debugGroup.add(this.stripLines);
+    }
+
+    private buildLotVisualization(): void {
+        const lots = this.blockManager.getLots();
+        if (lots.length === 0) return;
+
+        const positions: number[] = [];
+        const y = this.options.lineHeight + 0.25; // Above strips
+
+        for (const lot of lots) {
             const polygon = lot.polygon;
             for (let i = 0; i < polygon.length; i++) {
                 const current = polygon[i];

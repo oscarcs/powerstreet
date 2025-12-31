@@ -8,6 +8,7 @@ import { EditGizmoManager } from "./EditGizmoManager";
 import { StreetManager } from "./StreetManager";
 import { LocalStore } from "../data/createLocalStore";
 import { TileManager } from "../spatial/TileManager";
+import { BlockManager } from "./BlockManager";
 import { DebugRenderer, DebugRenderOptions } from "./DebugRenderer";
 import { TransportGraphUtils, STREET_LAYER_CONFIG, SnapResult } from "./TransportGraphUtils";
 import { TerrainManager } from "./TerrainManager";
@@ -21,6 +22,7 @@ export class Engine {
     private streetManager: StreetManager;
     private editGizmoManager: EditGizmoManager;
     private tileManager: TileManager;
+    private blockManager: BlockManager;
     private debugRenderer: DebugRenderer;
     private store: WorldsyncStore;
     private localStore: LocalStore | null = null;
@@ -69,8 +71,11 @@ export class Engine {
         this.terrainManager = new TerrainManager(this.scene);
         this.terrainManager.setTileManager(this.tileManager);
 
+        // Initialize block manager for lot subdivision
+        this.blockManager = new BlockManager(store);
+
         // Initialize debug renderer
-        this.debugRenderer = new DebugRenderer(this.scene, store, this.tileManager);
+        this.debugRenderer = new DebugRenderer(this.scene, store, this.blockManager, this.tileManager);
 
         // Initialize transport graph utilities for snapping/intersection detection
         this.transportGraphUtils = new TransportGraphUtils(store, STREET_LAYER_CONFIG);
@@ -87,6 +92,13 @@ export class Engine {
      */
     public getTileManager(): TileManager {
         return this.tileManager;
+    }
+
+    /**
+     * Get the block manager for external access.
+     */
+    public getBlockManager(): BlockManager {
+        return this.blockManager;
     }
 
     /**
@@ -560,6 +572,7 @@ export class Engine {
         this.inputManager.dispose();
         this.buildingManager.dispose();
         this.editGizmoManager.dispose();
+        this.blockManager.dispose();
         this.debugRenderer.dispose();
         this.terrainManager.dispose();
         this.renderer.dispose();

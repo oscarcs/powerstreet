@@ -2,59 +2,44 @@ import { createStore } from "tinybase/with-schemas";
 import { WorldsyncStore, TABLES_SCHEMA, VALUES_SCHEMA } from "../../shared/WorldsyncStore";
 
 /**
- * Generate a test road grid for block/lot algorithm testing.
- * Creates a 4x4 city block grid (200m x 200m total area).
+ * Generate a test polygon for beta strip algorithm debugging.
+ * Creates a pentagon shape (10x scaled from original):
+ * Original: [{x:0,y:0}, {x:10,y:0}, {x:10,y:1.5}, {x:9.5,y:2}, {x:0,y:2}]
+ * Scaled 10x: [{x:0,z:0}, {x:100,z:0}, {x:100,z:15}, {x:95,z:20}, {x:0,z:20}]
  */
 function generateTestRoadGrid(store: WorldsyncStore): void {
-    const gridSize = 5; // 5x5 nodes = 4x4 blocks
-    const spacing = 50; // 50m between streets
+    // Define the polygon vertices (10x scale of the original shape)
+    const vertices = [
+        { x: 0, z: 0 },
+        { x: 100, z: 0 },
+        { x: 100, z: 15 },
+        { x: 95, z: 20 },
+        { x: 0, z: 20 },
+    ];
 
-    // Create a 2D array to store node IDs
-    const nodeIds: string[][] = [];
-
-    // Create street nodes in a grid pattern
-    for (let row = 0; row < gridSize; row++) {
-        nodeIds[row] = [];
-        for (let col = 0; col < gridSize; col++) {
-            const nodeId = store.addRow("streetNodes", {
-                x: col * spacing,
-                z: row * spacing,
-                elevation: 0,
-            });
-            if (nodeId) {
-                nodeIds[row][col] = nodeId;
-            }
+    // Create nodes
+    const nodeIds: string[] = [];
+    for (const v of vertices) {
+        const nodeId = store.addRow("streetNodes", {
+            x: v.x,
+            z: v.z,
+            elevation: 0,
+        });
+        if (nodeId) {
+            nodeIds.push(nodeId);
         }
     }
 
-    // Create horizontal edges (along rows)
-    for (let row = 0; row < gridSize; row++) {
-        const isArterial = row % 2 === 0;
-        const streetWidth = isArterial ? 20 : 10;
-
-        for (let col = 0; col < gridSize - 1; col++) {
-            store.addRow("streetEdges", {
-                startNodeId: nodeIds[row][col],
-                endNodeId: nodeIds[row][col + 1],
-                width: streetWidth,
-                roadType: isArterial ? "arterial" : "local",
-            });
-        }
-    }
-
-    // Create vertical edges (along columns)
-    for (let row = 0; row < gridSize - 1; row++) {
-        for (let col = 0; col < gridSize; col++) {
-            const isArterial = col % 2 === 0;
-            const streetWidth = isArterial ? 20 : 10;
-
-            store.addRow("streetEdges", {
-                startNodeId: nodeIds[row][col],
-                endNodeId: nodeIds[row + 1][col],
-                width: streetWidth,
-                roadType: isArterial ? "arterial" : "local",
-            });
-        }
+    // Create edges connecting the vertices in order (closing the polygon)
+    const streetWidth = 10; // All edges same width for simplicity
+    for (let i = 0; i < nodeIds.length; i++) {
+        const nextI = (i + 1) % nodeIds.length;
+        store.addRow("streetEdges", {
+            startNodeId: nodeIds[i],
+            endNodeId: nodeIds[nextI],
+            width: streetWidth,
+            roadType: "local",
+        });
     }
 }
 

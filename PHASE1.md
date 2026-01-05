@@ -28,11 +28,13 @@ This document describes Phase 1 of the powerstreet project, focusing on foundati
 | Straight skeleton for strip generation | `shared/procgen/StripGeneration.ts`, `straight-skeleton-geojson` |
 | Strip → lot subdivision | `shared/procgen/LotSubdivision.ts`, `shared/procgen/PolygonUtils.ts` |
 | BlockManager for orchestration | `client/engine/BlockManager.ts` |
+| Main axis algorithm with terminal modification | `shared/procgen/StripGeneration.ts` |
 
 ### Remaining Work
 
 | Task | Notes |
 |------|-------|
+| Non-quadrilateral polygon handling | Main axis works for simple quads; complex polygons need refinement |
 | Incremental rendering updates | Still rebuilds all geometry on change |
 | LOD geometry simplification | TileManager has LOD fields but geometry not simplified |
 | Lock/CRDT conflict resolution | For complex multiplayer edits |
@@ -98,21 +100,50 @@ File: `shared/procgen/BlockDetection.ts`
 
 ## Strip & Lot Subdivision Algorithm
 
-Uses straight skeleton for strip generation, followed by perpendicular ray subdivision for lots. Based on Vanegas et al. (2012).
+Strip generation divides a city block into two strips using a "main axis" derived from the straight skeleton. Each strip has street frontage on one of the long edges, suitable for lot subdivision.
 
-### Strip Generation (StripGeneration.ts)
+### Main Axis Algorithm (StripGeneration.ts)
 
-**Step 1 - Alpha Strips**:
-1. Compute straight skeleton of the offset block polygon using `straight-skeleton-geojson`
-2. Each skeleton face corresponds to one input edge (street frontage)
-3. Associate faces with their bounding street edge → "alpha strips"
+Based on Vanegas et al. with "Terminal Modification" to fix corner-to-corner issues:
 
-**Step 2 - Beta Strips** (corner region transfer):
-1. Find adjacent pairs of strips (strips that share a skeleton edge)
-2. At corners where two streets meet:
-   - The shorter street's corner region is transferred to the longer street's strip
-   - This produces cleaner lot geometry at intersections
-3. Slice the shorter strip to remove corner region, union with longer strip
+```
+ALGORITHM CalculateMainAxis(Skeleton S, Polygon P)
+
+    // 1. BUILD GRAPH from skeleton segments
+    // Extract internal edges (not on polygon boundary) from skeleton faces
+    Graph G = BuildGraphFromSkeletonSegments(S)
+
+    // 2. FIND LONGEST PATH using double BFS (tree diameter)
+    // This gives us the >-< shape path through the skeleton
+    // Problem: raw path goes corner-to-corner through diagonal forks
+    Path longestPath = FindTreeDiameter(G)
+
+    // 3. IDENTIFY SHORT EDGES (the "opposing block edges")
+    // Sort polygon edges by length
+    // Find the two shortest NON-ADJACENT edges (the "ends" of the block)
+    (Edge short1, Edge short2) = FindOpposingShortEdges(P)
+
+    // 4. TERMINAL MODIFICATION (the key fix)
+    // Replace the diagonal fork endpoints with midpoints of short edges
+    // This snaps the axis to run between the block "ends"
+    longestPath[0] = Midpoint(short1)
+    longestPath[last] = Midpoint(short2)
+
+    RETURN longestPath
+```
+
+**Why Terminal Modification?**
+- Raw skeleton longest path goes corner-to-corner (diagonal)
+- The skeleton has "forks" at each end reaching to corners
+- We want the axis between the two short edges (block ends)
+- Solution: replace fork endpoints with short edge midpoints
+
+### Beta Strip Generation
+
+Once the main axis is calculated:
+1. Slice the offset block polygon along the main axis using `slicePolygon()`
+2. This produces exactly two beta strips
+3. Each strip has frontage on one of the long edges
 
 ### Lot Subdivision (LotSubdivision.ts)
 
@@ -132,91 +163,29 @@ BlockManager (`client/engine/BlockManager.ts`) orchestrates the pipeline:
 
 **Debug visualization**: Orange lines show strips, yellow lines show lots.
 
-Files: `shared/procgen/StripGeneration.ts`, `shared/procgen/LotSubdivision.ts`, `shared/procgen/PolygonUtils.ts`, `client/engine/BlockManager.ts`
+### Debug Output
 
----
+The `StripDebugOutput` interface provides visibility into the algorithm:
+- `skeletonSegments`: Internal skeleton edges extracted from faces
+- `mainAxis`: The computed main axis polyline after terminal modification
+- `alphaStrips`: Raw skeleton faces (one per input edge)
+- `betaStrips`: Final strips after main axis splitting
 
-## Beta Strips Implementation - Work In Progress
+### Known Limitations
 
-The beta strips corner-swapping algorithm is partially implemented but not yet producing correct results.
+- Works well for simple quadrilateral blocks
+- Non-quadrilateral polygons (5+ sides, irregular shapes) may not find correct opposing short edges
+- Fallback: extends raw longest path to boundary if short edge detection fails
 
-### Current State
+### Files
 
-**What's working:**
-- Straight skeleton computation via `straight-skeleton-geojson` ✅
-- Alpha strip generation (skeleton faces associated with input edges) ✅
-- Adjacent pair detection (finding strips that share skeleton edges) ✅
-- Slicing line calculation for corner transfer ✅
-- Polygon slicing with `slicePolygon()` ✅
-- DebugRenderer store listeners fixed (rebuilds on street changes) ✅
-
-**What's not working:**
-- Polygon union after corner transfer fails in most cases
-- Result: triangular skeleton faces visible in debug view instead of rectangular strips
-
-### Root Cause Analysis
-
-The corner transfer algorithm:
-1. Slices the source strip to create a "transfer region"
-2. Attempts to union the transfer region with the destination strip
-3. Union fails because the polygons share a **partial edge overlap**, not an exact edge match
-
-**Example from debug logs:**
-```
-poly1 (dest): (27.5,27.5) (10.0,45.0) (10.0,10.0)
-poly2 (transfer): (18.8,36.3) (27.5,27.5) (45.0,45.0) (27.5,45.0)
-sharedEdge: (27.5,27.5) -> (18.8,36.3)  // partial overlap
-```
-
-The shared edge is a segment from the center point partway toward a corner, but:
-- In poly1, this is part of a longer edge `(27.5,27.5) -> (10.0,45.0)`
-- In poly2, this is the full edge `(18.8,36.3) -> (27.5,27.5)`
-
-### Attempted Fixes
-
-1. **Fixed `findSharedEdge` to return actual overlap segment** - Changed from returning the full edge from poly1 to computing the actual overlapping segment using projection.
-
-2. **Rewrote `mergePolygonsAlongSharedEdge`** - New algorithm:
-   - Find vertices in each polygon that lie on/near the shared edge
-   - Walk around poly1 skipping the shared portion
-   - Walk around poly2 skipping the shared portion
-   - Deduplicate vertices
-
-3. **Added tiebreaker for equal-length edges** - For square blocks where all edges have the same length, use edge index as tiebreaker to still perform corner transfers.
-
-### Next Steps to Try
-
-1. **Add more debug logging** to the new merge algorithm to see why it's still failing
-
-2. **Use a proper polygon boolean library** (e.g., `clipper-lib`, `polybooljs`, or `polygon-clipping`) instead of custom union code
-
-3. **Alternative approach**: Instead of slicing + union, directly construct the beta strip polygon by:
-   - Finding the corner point (where skeleton edges meet)
-   - Computing the new corner cut line
-   - Building the merged polygon from scratch using known geometry
-
-4. **Simplify for rectangular blocks**: For 4-sided blocks, could use a simpler algorithm that doesn't rely on polygon boolean operations
-
-### Debug Logging Currently Active
-
-The following console logs are enabled for debugging:
-- `StripGeneration.ts`: Face vertex counts, adjacent pairs, beta strip processing details
-- `PolygonUtils.ts`: Union failures with polygon vertices and shared edge info
-- `BlockManager.ts`: Block/strip/lot counts
-
-### Files Involved
-
-- `shared/procgen/StripGeneration.ts` - Alpha/beta strip generation
-- `shared/procgen/PolygonUtils.ts` - `slicePolygon()`, `unionPolygons()`, `findSharedEdge()`
-- `shared/procgen/LotSubdivision.ts` - Strip → lot subdivision
-- `client/engine/BlockManager.ts` - Orchestration and caching
-- `client/engine/DebugRenderer.ts` - Visualization (strips=orange, lots=yellow)
+- `shared/procgen/StripGeneration.ts` - Main axis algorithm, skeleton processing
+- `shared/procgen/PolygonUtils.ts` - Helper functions (slicePolygon, etc.)
+- `client/engine/BlockManager.ts` - Orchestration
 
 ---
 
 ## Remaining Technical Debt
-
-- **Beta strips corner transfer**: Polygon union not working correctly (see above)
 
 - **Incremental updates**: StreetManager and BuildingManager rebuild all geometry on any change. Should track dirty entities and only rebuild affected geometry.
 

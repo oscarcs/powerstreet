@@ -54,14 +54,20 @@ export class StreetManager {
             color: 0x44aaff,
             transparent: true,
             opacity: 0.6,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
         });
 
         this.invalidPreviewMaterial = new THREE.MeshStandardMaterial({
             color: 0xff4444,
             transparent: true,
             opacity: 0.6,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
         });
 
         this.initialize();
@@ -347,6 +353,9 @@ export class StreetManager {
             side: THREE.DoubleSide,
             roughness: 0.9,
             metalness: 0.1,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
         });
 
         const mesh = new THREE.Mesh(geometry, material);
@@ -445,7 +454,10 @@ export class StreetManager {
             color: color,
             side: THREE.DoubleSide,
             roughness: 0.9,
-            metalness: 0.1
+            metalness: 0.1,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
         });
 
         const mesh = new THREE.Mesh(geometry, material);

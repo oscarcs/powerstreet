@@ -7,6 +7,7 @@
  * - Shared edge detection
  */
 
+import * as turf from "@turf/turf";
 import { Point2D } from "./BlockDetection";
 
 /**
@@ -20,7 +21,8 @@ import { Point2D } from "./BlockDetection";
 export function slicePolygon(
     polygon: Point2D[],
     lineStart: Point2D,
-    lineEnd: Point2D
+    lineEnd: Point2D,
+    debug: boolean = false
 ): Point2D[][] {
     if (polygon.length < 3) return [polygon];
 
@@ -45,18 +47,51 @@ export function slicePolygon(
         }
     }
 
+    // Deduplicate intersections at polygon vertices
+    // When a line passes through a vertex, it intersects both adjacent edges at t=0 and t=1
+    const deduped: typeof intersections = [];
+    const VERTEX_TOLERANCE = 0.01;
+
+    for (const int of intersections) {
+        let isDuplicate = false;
+        for (const existing of deduped) {
+            if (distance(int.point, existing.point) < VERTEX_TOLERANCE) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            deduped.push(int);
+        }
+    }
+
     // Need exactly 2 intersection points for a valid slice
-    if (intersections.length !== 2) {
+    if (deduped.length !== 2) {
+        if (debug) {
+            console.log(`    slicePolygon: Found ${intersections.length} intersections, ${deduped.length} after dedup (need 2)`);
+            console.log(`      Line: (${lineStart.x.toFixed(2)}, ${lineStart.z.toFixed(2)}) -> (${lineEnd.x.toFixed(2)}, ${lineEnd.z.toFixed(2)})`);
+            console.log(`      Polygon (${polygon.length} vertices):`);
+            for (let i = 0; i < polygon.length; i++) {
+                const p = polygon[i];
+                console.log(`        ${i}: (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`);
+            }
+            if (intersections.length > 0) {
+                console.log(`      Intersections found:`);
+                for (const int of intersections) {
+                    console.log(`        edge ${int.edgeIndex} at t=${int.t.toFixed(3)}: (${int.point.x.toFixed(2)}, ${int.point.z.toFixed(2)})`);
+                }
+            }
+        }
         return [polygon];
     }
 
     // Sort by edge index (and t within same edge)
-    intersections.sort((a, b) => {
+    deduped.sort((a, b) => {
         if (a.edgeIndex !== b.edgeIndex) return a.edgeIndex - b.edgeIndex;
         return a.t - b.t;
     });
 
-    const [int1, int2] = intersections;
+    const [int1, int2] = deduped;
 
     // Build two polygons by walking around the original polygon
     const poly1: Point2D[] = [];
@@ -79,23 +114,38 @@ export function slicePolygon(
     }
     poly2.push(int1.point);
 
+    // Deduplicate vertices in each polygon (can happen when intersection points coincide with vertices)
+    const deduplicatePolygon = (poly: Point2D[]): Point2D[] => {
+        const result: Point2D[] = [];
+        for (const p of poly) {
+            if (result.length === 0 || distance(p, result[result.length - 1]) > 0.01) {
+                result.push(p);
+            }
+        }
+        // Also check first vs last
+        if (result.length > 1 && distance(result[0], result[result.length - 1]) < 0.01) {
+            result.pop();
+        }
+        return result;
+    };
+
+    const cleanPoly1 = deduplicatePolygon(poly1);
+    const cleanPoly2 = deduplicatePolygon(poly2);
+
     // Filter out degenerate polygons
     const result: Point2D[][] = [];
-    if (poly1.length >= 3 && computeArea(poly1) > 0.1) {
-        result.push(poly1);
+    if (cleanPoly1.length >= 3 && computeArea(cleanPoly1) > 0.1) {
+        result.push(cleanPoly1);
     }
-    if (poly2.length >= 3 && computeArea(poly2) > 0.1) {
-        result.push(poly2);
+    if (cleanPoly2.length >= 3 && computeArea(cleanPoly2) > 0.1) {
+        result.push(cleanPoly2);
     }
 
     return result.length > 0 ? result : [polygon];
 }
 
 /**
- * Compute the union of two polygons.
- *
- * This is a simplified implementation that uses the Sutherland-Hodgman algorithm
- * approach for convex cases and falls back to a buffer-based approach for complex cases.
+ * Compute the union of two polygons using Turf.js.
  *
  * @param poly1 First polygon
  * @param poly2 Second polygon
@@ -105,24 +155,68 @@ export function unionPolygons(poly1: Point2D[], poly2: Point2D[]): Point2D[] | n
     if (poly1.length < 3) return poly2.length >= 3 ? [...poly2] : null;
     if (poly2.length < 3) return [...poly1];
 
-    // For simple cases where polygons share an edge, we can merge directly
-    const sharedEdge = findSharedEdge(poly1, poly2);
-    if (sharedEdge) {
-        const result = mergePolygonsAlongSharedEdge(poly1, poly2, sharedEdge);
-        if (result) {
+    try {
+        // Convert to Turf polygons (closed loops)
+        const toTurfCoords = (poly: Point2D[]) => {
+            const coords = poly.map((p) => [p.x, p.z]);
+            if (
+                coords.length > 0 &&
+                (coords[0][0] !== coords[coords.length - 1][0] ||
+                    coords[0][1] !== coords[coords.length - 1][1])
+            ) {
+                coords.push(coords[0]);
+            }
+            return [coords];
+        };
+
+        const tPoly1 = turf.polygon(toTurfCoords(poly1));
+        const tPoly2 = turf.polygon(toTurfCoords(poly2));
+
+        const unionResult = turf.union(turf.featureCollection([tPoly1, tPoly2]));
+
+        if (!unionResult) return null;
+
+        const geometry = unionResult.geometry;
+
+        // Convert back to Point2D[]
+        if (geometry.type === "Polygon") {
+            const coords = geometry.coordinates[0];
+            // Remove closing point if present (check last vs first)
+            const result = coords.map((c) => ({ x: c[0], z: c[1] }));
+            if (
+                result.length > 1 &&
+                distance(result[0], result[result.length - 1]) < 0.001
+            ) {
+                result.pop();
+            }
             return result;
+        } else if (geometry.type === "MultiPolygon") {
+            // Return the largest polygon by area
+            let maxArea = -1;
+            let bestPoly: Point2D[] | null = null;
+
+            for (const polyCoords of geometry.coordinates) {
+                const coords = polyCoords[0];
+                const result = coords.map((c) => ({ x: c[0], z: c[1] }));
+                if (
+                    result.length > 1 &&
+                    distance(result[0], result[result.length - 1]) < 0.001
+                ) {
+                    result.pop();
+                }
+                const area = computeArea(result);
+                if (area > maxArea) {
+                    maxArea = area;
+                    bestPoly = result;
+                }
+            }
+            return bestPoly;
         }
-        console.log(`unionPolygons: mergePolygonsAlongSharedEdge failed`);
-        console.log(`  poly1 (${poly1.length} verts):`, poly1.map(p => `(${p.x.toFixed(1)},${p.z.toFixed(1)})`).join(' '));
-        console.log(`  poly2 (${poly2.length} verts):`, poly2.map(p => `(${p.x.toFixed(1)},${p.z.toFixed(1)})`).join(' '));
-        console.log(`  sharedEdge: (${sharedEdge[0].x.toFixed(1)},${sharedEdge[0].z.toFixed(1)}) -> (${sharedEdge[1].x.toFixed(1)},${sharedEdge[1].z.toFixed(1)})`);
-    } else {
-        console.log(`unionPolygons: no shared edge found`);
-        console.log(`  poly1 (${poly1.length} verts):`, poly1.map(p => `(${p.x.toFixed(1)},${p.z.toFixed(1)})`).join(' '));
-        console.log(`  poly2 (${poly2.length} verts):`, poly2.map(p => `(${p.x.toFixed(1)},${p.z.toFixed(1)})`).join(' '));
+    } catch (err) {
+        console.warn("unionPolygons: Turf union failed", err);
+        return null;
     }
 
-    // Fallback: return null to indicate failure (caller should handle)
     return null;
 }
 
@@ -228,110 +322,6 @@ function getEdgeOverlap(
     };
 
     return [startPoint, endPoint];
-}
-
-/**
- * Merge two polygons that share an edge segment.
- * Works with partial edge overlaps where the shared segment may not align with polygon vertices.
- */
-function mergePolygonsAlongSharedEdge(
-    poly1: Point2D[],
-    poly2: Point2D[],
-    sharedEdge: [Point2D, Point2D]
-): Point2D[] | null {
-    const tolerance = 1.0;
-
-    // Find vertices in each polygon that are on or near the shared edge
-    const onEdge1: number[] = [];
-    const onEdge2: number[] = [];
-
-    for (let i = 0; i < poly1.length; i++) {
-        if (pointToLineDistance(poly1[i], sharedEdge[0], sharedEdge[1]) < tolerance) {
-            onEdge1.push(i);
-        }
-    }
-
-    for (let i = 0; i < poly2.length; i++) {
-        if (pointToLineDistance(poly2[i], sharedEdge[0], sharedEdge[1]) < tolerance) {
-            onEdge2.push(i);
-        }
-    }
-
-    if (onEdge1.length < 1 || onEdge2.length < 1) {
-        return null;
-    }
-
-    // For each polygon, find the vertices that are at or beyond the shared edge endpoints
-    // We want to walk around each polygon, skipping the portion on the shared edge
-
-    // Find connection points - vertices closest to shared edge endpoints
-    const findClosest = (poly: Point2D[], target: Point2D, candidates: number[]): number => {
-        let best = candidates[0];
-        let bestDist = distance(poly[best], target);
-        for (const idx of candidates) {
-            const d = distance(poly[idx], target);
-            if (d < bestDist) {
-                bestDist = d;
-                best = idx;
-            }
-        }
-        return best;
-    };
-
-    // Find the entry/exit points for each polygon on the shared edge
-    const p1Start = findClosest(poly1, sharedEdge[0], onEdge1);
-    const p1End = findClosest(poly1, sharedEdge[1], onEdge1);
-    const p2Start = findClosest(poly2, sharedEdge[0], onEdge2);
-    const p2End = findClosest(poly2, sharedEdge[1], onEdge2);
-
-    // Build result by walking around poly1 (skipping shared edge), then poly2 (skipping shared edge)
-    const result: Point2D[] = [];
-
-    // Walk poly1 from end of shared edge to start of shared edge (the non-shared portion)
-    let idx = p1End;
-    for (let i = 0; i < poly1.length; i++) {
-        result.push(poly1[idx]);
-        if (idx === p1Start) break;
-        idx = (idx + 1) % poly1.length;
-    }
-
-    // Walk poly2 from start of shared edge to end of shared edge (the non-shared portion)
-    // Note: poly2 might have opposite winding, so we might need to walk backwards
-    // Check which direction to walk by seeing which way leads away from the shared edge
-    const p2Next = (p2Start + 1) % poly2.length;
-    const p2Prev = (p2Start - 1 + poly2.length) % poly2.length;
-
-    const distNext = pointToLineDistance(poly2[p2Next], sharedEdge[0], sharedEdge[1]);
-    const distPrev = pointToLineDistance(poly2[p2Prev], sharedEdge[0], sharedEdge[1]);
-
-    // Walk in the direction that goes away from the shared edge
-    const step = distNext > distPrev ? 1 : -1;
-
-    idx = (p2Start + step + poly2.length) % poly2.length;
-    for (let i = 0; i < poly2.length; i++) {
-        if (idx === p2End) break;
-        result.push(poly2[idx]);
-        idx = (idx + step + poly2.length) % poly2.length;
-    }
-
-    // Deduplicate consecutive points
-    const dedupedResult: Point2D[] = [];
-    for (let i = 0; i < result.length; i++) {
-        const curr = result[i];
-        const prev = result[(i - 1 + result.length) % result.length];
-        if (distance(curr, prev) > 0.1) {
-            dedupedResult.push(curr);
-        }
-    }
-
-    // Also check first/last
-    if (dedupedResult.length > 1) {
-        if (distance(dedupedResult[0], dedupedResult[dedupedResult.length - 1]) < 0.1) {
-            dedupedResult.pop();
-        }
-    }
-
-    return dedupedResult.length >= 3 ? dedupedResult : null;
 }
 
 // ============ Geometry Helpers ============

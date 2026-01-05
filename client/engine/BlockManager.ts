@@ -19,7 +19,7 @@ import {
     offsetBlockBoundary,
     Point2D,
 } from "../../shared/procgen/BlockDetection";
-import { Strip, generateStrips } from "../../shared/procgen/StripGeneration";
+import { Strip, generateStrips, StripGenerationOptions, StripDebugOutput } from "../../shared/procgen/StripGeneration";
 import {
     GeneratedLot,
     subdivideStrip,
@@ -33,6 +33,8 @@ export interface BlockManagerOptions {
     minLotFrontage: number;
     maxLotFrontage: number;
     defaultStreetWidth: number;
+    skipLotMerging: boolean; // if true, skip merging invalid lots (for debugging)
+    skipBetaStrips: boolean; // if true, skip corner transfer (show alpha strips only)
 }
 
 const DEFAULT_OPTIONS: BlockManagerOptions = {
@@ -42,6 +44,8 @@ const DEFAULT_OPTIONS: BlockManagerOptions = {
     minLotFrontage: 10,
     maxLotFrontage: 50,
     defaultStreetWidth: 10,
+    skipLotMerging: false,
+    skipBetaStrips: false,
 };
 
 export class BlockManager {
@@ -160,14 +164,27 @@ export class BlockManager {
             if (!offsetPolygon) continue;
 
             try {
-                const strips = generateStrips(block, offsetPolygon, this.edges);
+                const debugOutput: StripDebugOutput = {
+                    blockId: block.id,
+                    alphaStrips: [],
+                    skeletonSegments: [],
+                    mainAxis: [],
+                    betaStrips: [],
+                    errors: []
+                };
+                const stripOptions: StripGenerationOptions = {
+                    skipBetaStrips: this.options.skipBetaStrips,
+                    debugOutput
+                };
+                const strips = generateStrips(block, offsetPolygon, this.edges, stripOptions);
                 this.cachedStrips.push(...strips);
+
+                // Dump debug info as JSON
+                console.log(`STRIP_DEBUG:${JSON.stringify(debugOutput)}`);
             } catch (err) {
                 console.warn(`BlockManager: Failed to generate strips for block ${block.id}:`, err);
             }
         }
-
-        console.log(`BlockManager: Generated ${this.cachedStrips.length} strips`);
 
         // Step 5: Subdivide strips into lots
         const rules: SubdivisionRules = {
@@ -176,6 +193,7 @@ export class BlockManager {
             minLotArea: this.options.minLotArea,
             maxLotDepth: this.options.maxLotDepth,
             targetLotWidth: this.options.targetLotWidth,
+            skipLotMerging: this.options.skipLotMerging,
         };
 
         this.cachedLots = [];

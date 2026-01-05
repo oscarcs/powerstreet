@@ -8,11 +8,18 @@ interface DebugPanelProps {
 export const DebugPanel = ({ engine }: DebugPanelProps) => {
     const [fps, setFps] = useState(0);
     const [ssgiEnabled, setSsgiEnabled] = useState(engine.isSSGIEnabled());
-    const [debugVisible, setDebugVisible] = useState(false);
+    const [debugVisible, setDebugVisible] = useState(true); // Enable debug on page load
     const [showTiles, setShowTiles] = useState(true);
     const [showBlocks, setShowBlocks] = useState(true);
     const [showLots, setShowLots] = useState(true);
-    const [debugStats, setDebugStats] = useState({ blocks: 0, lots: 0, tiles: 0 });
+    const [skipLotMerging, setSkipLotMerging] = useState(false);
+    const [skipBetaStrips, setSkipBetaStrips] = useState(false);
+    const [debugStats, setDebugStats] = useState({ blocks: 0, lots: 0, tiles: 0, strips: 0 });
+
+    // Enable debug mode on page load
+    useEffect(() => {
+        engine.enableDebug();
+    }, [engine]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -31,6 +38,7 @@ export const DebugPanel = ({ engine }: DebugPanelProps) => {
                 blocks: debugRenderer.getDetectedBlocks().length,
                 lots: debugRenderer.getGeneratedLots().length,
                 tiles: engine.getTileManager().getAllTiles().length,
+                strips: debugRenderer.getStrips().length,
             });
         };
 
@@ -67,6 +75,18 @@ export const DebugPanel = ({ engine }: DebugPanelProps) => {
         const newValue = !showLots;
         setShowLots(newValue);
         engine.setDebugOptions({ showLots: newValue });
+    };
+
+    const handleSkipLotMergingToggle = () => {
+        const newValue = !skipLotMerging;
+        setSkipLotMerging(newValue);
+        engine.setBlockManagerOptions({ skipLotMerging: newValue });
+    };
+
+    const handleSkipBetaStripsToggle = () => {
+        const newValue = !skipBetaStrips;
+        setSkipBetaStrips(newValue);
+        engine.setBlockManagerOptions({ skipBetaStrips: newValue });
     };
 
     return (
@@ -120,6 +140,28 @@ export const DebugPanel = ({ engine }: DebugPanelProps) => {
                                 className="cursor-pointer"
                             />
                             <span className="text-yellow-400">Lots ({debugStats.lots})</span>
+                        </label>
+                    </div>
+                    <div className="my-1 border-t border-white/30" />
+                    <div className="ml-4 flex flex-col gap-1 text-xs">
+                        <span className="text-orange-400">Strips ({debugStats.strips})</span>
+                        <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={skipBetaStrips}
+                                onChange={handleSkipBetaStripsToggle}
+                                className="cursor-pointer"
+                            />
+                            <span className="text-orange-300">Skip Beta Strips (show alpha only)</span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={skipLotMerging}
+                                onChange={handleSkipLotMergingToggle}
+                                className="cursor-pointer"
+                            />
+                            <span className="text-yellow-300">Skip Lot Merging</span>
                         </label>
                     </div>
                 </>

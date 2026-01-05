@@ -22,6 +22,7 @@ export interface SubdivisionRules {
     minLotArea: number; // square meters
     maxLotDepth: number; // meters, maximum lot depth from street
     targetLotWidth: number; // meters, preferred lot width
+    skipLotMerging?: boolean; // if true, skip merging invalid lots (for debugging)
 }
 
 export const DEFAULT_SUBDIVISION_RULES: SubdivisionRules = {
@@ -93,8 +94,8 @@ export function subdivideStrip(strip: Strip, rules: SubdivisionRules): Generated
         node.isValid = validatePolygon(node.polygon, strip.streetEdgeSegment, rules);
     }
 
-    // Step 4: Merge invalid polygons with neighbors
-    const mergedNodes = mergeInvalidPolygons(nodes, rules);
+    // Step 4: Merge invalid polygons with neighbors (unless skipped for debugging)
+    const mergedNodes = rules.skipLotMerging ? nodes : mergeInvalidPolygons(nodes, rules);
 
     // Step 5: Convert to lots
     const lots: GeneratedLot[] = [];

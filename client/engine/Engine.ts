@@ -122,6 +122,27 @@ export class Engine {
         this.debugRenderer.setOptions(options);
     }
 
+    /**
+     * Enable debug mode (show debug visualization).
+     */
+    public enableDebug(): void {
+        this.debugRenderer.show();
+    }
+
+    /**
+     * Check if debug mode is currently visible.
+     */
+    public isDebugVisible(): boolean {
+        return this.debugRenderer.visible;
+    }
+
+    /**
+     * Set block manager options (e.g., skipLotMerging for debugging).
+     */
+    public setBlockManagerOptions(options: Partial<import("./BlockManager").BlockManagerOptions>): void {
+        this.blockManager.setOptions(options);
+    }
+
     public setLocalStore(localStore: LocalStore): void {
         this.localStore = localStore;
         this.buildingManager.setLocalStore(localStore);
